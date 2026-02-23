@@ -5,18 +5,21 @@
 #:property ImplicitUsings=enable
 #:property PublishAot=false
 #:package CliWrap@3.10.0
-#:package System.CommandLine@2.0.0-beta4.22272.1
+#:package Spectre.Console.Cli@0.53.0
 
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Linq;
 using System.Text;
+using System.Text.Json;
 using System.Text.RegularExpressions;
+using System.Threading;
 using System.Threading.Tasks;
-using System.CommandLine;
-using System.CommandLine.Invocation;
 using CliWrap;
 using CliWrap.Buffered;
+using Spectre.Console;
+using Spectre.Console.Cli;
 
 namespace ReleaseTools;
 
@@ -711,129 +714,174 @@ public static class Program
 {
     public static async Task<int> Main(string[] args)
     {
-        var rootCommand = new RootCommand("ReleaseTools - A versioning CLI tool");
-
-        var nextCommand = new System.CommandLine.Command("next", "Calculate the next version without creating a tag");
-        var schemaOption = new Option<string>(new[] { "-s", "--schema" }, "Version schema (e.g., {MAJOR}.{MINOR}.{PATCH})") { IsRequired = true };
-        var prefixOption = new Option<string?>(new[] { "-p", "--prefix" }, "Tag prefix for monorepo scenarios");
-        var folderOption = new Option<string?>(new[] { "-f", "--folder" }, "Filter commits to a specific folder path");
-        var outputOption = new Option<string>(new[] { "-o", "--output" }, () => "text", "Output format: text or json");
-
-        nextCommand.AddOption(schemaOption);
-        nextCommand.AddOption(prefixOption);
-        nextCommand.AddOption(folderOption);
-        nextCommand.AddOption(outputOption);
-
-        nextCommand.SetHandler(async (schema, prefix, folder, output) =>
+        var app = new CommandApp();
+        app.Configure(config =>
         {
-            try
-            {
-                var calculator = new VersionCalculator();
-                var result = await calculator.CalculateNextVersionAsync(schema, prefix, folder);
+            config.AddCommand<NextCommand>("next")
+                .WithDescription("Calculate the next version without creating a tag")
+                .WithExample(new[] { "next", "-s", "{MAJOR}.{MINOR}.{PATCH}" });
+            
+            config.AddCommand<TagCommand>("tag")
+                .WithDescription("Create a git tag with the next version")
+                .WithExample(new[] { "tag", "-s", "{MAJOR}.{MINOR}.{PATCH}" });
+        });
 
-                if (output.Equals("json", StringComparison.OrdinalIgnoreCase))
-                {
-                    var json = System.Text.Json.JsonSerializer.Serialize(new
-                    {
-                        result.Version,
-                        result.Mode,
-                        result.BaseTag,
-                        CommitsSinceTag = result.CommitsSinceTag,
-                        Increment = result.Increment.ToString(),
-                        result.IncrementReason,
-                        result.Schema
-                    }, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
-                    Console.WriteLine(json);
-                }
-                else
-                {
-                    Console.WriteLine(result.Version);
-                }
-            }
-            catch (SchemaMismatchException ex)
-            {
-                Console.Error.WriteLine("Error: Schema mode mismatch");
-                Console.Error.WriteLine();
-                Console.Error.WriteLine(ex.Message);
-                Environment.Exit(4);
-            }
-            catch (Exception ex)
-            {
-                Console.Error.WriteLine($"Error: {ex.Message}");
-                Environment.Exit(1);
-            }
-        }, schemaOption, prefixOption, folderOption, outputOption);
+        return await app.RunAsync(args);
+    }
+}
 
-        var tagCommand = new System.CommandLine.Command("tag", "Create a git tag with the next version");
-        var messageOption = new Option<string?>(new[] { "-m", "--message" }, "Tag message");
-        var annotateOption = new Option<bool>(new[] { "-a", "--annotate" }, "Create an annotated tag");
-        var pushOption = new Option<bool>("--push", "Push tag to origin after creation");
+public class NextCommand : Command<NextCommand.Settings>
+{
+    public class Settings : CommandSettings
+    {
+        [CommandOption("-s|--schema")]
+        [Description("Version schema (e.g., {MAJOR}.{MINOR}.{PATCH})")]
+        public required string Schema { get; init; }
 
-        tagCommand.AddOption(schemaOption);
-        tagCommand.AddOption(prefixOption);
-        tagCommand.AddOption(folderOption);
-        tagCommand.AddOption(messageOption);
-        tagCommand.AddOption(annotateOption);
-        tagCommand.AddOption(pushOption);
-        tagCommand.AddOption(outputOption);
+        [CommandOption("-p|--prefix")]
+        [Description("Tag prefix for monorepo scenarios")]
+        public string? Prefix { get; init; }
 
-        tagCommand.SetHandler(async (schema, prefix, folder, message, annotated, push, output) =>
+        [CommandOption("-f|--folder")]
+        [Description("Filter commits to a specific folder path")]
+        public string? Folder { get; init; }
+
+        [CommandOption("-o|--output")]
+        [Description("Output format: text or json")]
+        [DefaultValue("text")]
+        public string Output { get; init; } = "text";
+    }
+
+    public override int Execute(CommandContext context, Settings settings, CancellationToken cancellationToken)
+    {
+        try
         {
-            try
+            var calculator = new VersionCalculator();
+            var result = calculator.CalculateNextVersionAsync(settings.Schema, settings.Prefix, settings.Folder).GetAwaiter().GetResult();
+
+            if (settings.Output.Equals("json", StringComparison.OrdinalIgnoreCase))
             {
-                var calculator = new VersionCalculator();
-                var result = await calculator.CalculateNextVersionAsync(schema, prefix, folder);
-
-                var gitService = new GitService();
-                var tagName = prefix != null ? $"{prefix}{result.Version}" : result.Version;
-
-                await gitService.CreateTagAsync(tagName, message, annotated);
-
-                if (push)
+                var json = JsonSerializer.Serialize(new
                 {
-                    await gitService.PushTagAsync(tagName);
-                }
+                    result.Version,
+                    result.Mode,
+                    result.BaseTag,
+                    CommitsSinceTag = result.CommitsSinceTag,
+                    Increment = result.Increment.ToString(),
+                    result.IncrementReason,
+                    result.Schema
+                }, new JsonSerializerOptions { WriteIndented = true });
+                Console.Write(json);
+            }
+            else
+            {
+                AnsiConsole.Write(result.Version);
+            }
+            return 0;
+        }
+        catch (SchemaMismatchException ex)
+        {
+            AnsiConsole.MarkupLine("[red]Error: Schema mode mismatch[/]");
+            AnsiConsole.WriteLine();
+            AnsiConsole.WriteLine(ex.Message);
+            return 4;
+        }
+        catch (Exception ex)
+        {
+            AnsiConsole.MarkupLine($"[red]Error: {ex.Message}[/]");
+            return 1;
+        }
+    }
+}
 
-                if (output.Equals("json", StringComparison.OrdinalIgnoreCase))
+public class TagCommand : Command<TagCommand.Settings>
+{
+    public class Settings : CommandSettings
+    {
+        [CommandOption("-s|--schema")]
+        [Description("Version schema (e.g., {MAJOR}.{MINOR}.{PATCH})")]
+        public required string Schema { get; init; }
+
+        [CommandOption("-p|--prefix")]
+        [Description("Tag prefix for monorepo scenarios")]
+        public string? Prefix { get; init; }
+
+        [CommandOption("-f|--folder")]
+        [Description("Filter commits to a specific folder path")]
+        public string? Folder { get; init; }
+
+        [CommandOption("-m|--message")]
+        [Description("Tag message")]
+        public string? Message { get; init; }
+
+        [CommandOption("-a|--annotate")]
+        [Description("Create an annotated tag")]
+        [DefaultValue(false)]
+        public bool Annotated { get; init; }
+
+        [CommandOption("--push")]
+        [Description("Push tag to origin after creation")]
+        [DefaultValue(false)]
+        public bool Push { get; init; }
+
+        [CommandOption("-o|--output")]
+        [Description("Output format: text or json")]
+        [DefaultValue("text")]
+        public string Output { get; init; } = "text";
+    }
+
+    public override int Execute(CommandContext context, Settings settings, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var calculator = new VersionCalculator();
+            var result = calculator.CalculateNextVersionAsync(settings.Schema, settings.Prefix, settings.Folder).GetAwaiter().GetResult();
+
+            var gitService = new GitService();
+            var tagName = settings.Prefix != null ? $"{settings.Prefix}{result.Version}" : result.Version;
+
+            gitService.CreateTagAsync(tagName, settings.Message, settings.Annotated).GetAwaiter().GetResult();
+
+            if (settings.Push)
+            {
+                gitService.PushTagAsync(tagName).GetAwaiter().GetResult();
+            }
+
+            if (settings.Output.Equals("json", StringComparison.OrdinalIgnoreCase))
+            {
+                var json = JsonSerializer.Serialize(new
                 {
-                    var json = System.Text.Json.JsonSerializer.Serialize(new
-                    {
-                        Version = result.Version,
-                        TagName = tagName,
-                        result.Mode,
-                        Annotated = annotated,
-                        Pushed = push,
-                        result.Schema
-                    }, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
-                    Console.WriteLine(json);
-                }
-                else
+                    Version = result.Version,
+                    TagName = tagName,
+                    result.Mode,
+                    Annotated = settings.Annotated,
+                    Pushed = settings.Push,
+                    result.Schema
+                }, new JsonSerializerOptions { WriteIndented = true });
+                Console.Write(json);
+            }
+            else
+            {
+                AnsiConsole.WriteLine($"Created tag: {tagName}");
+                if (settings.Push)
                 {
-                    Console.WriteLine($"Created tag: {tagName}");
-                    if (push)
-                    {
-                        Console.WriteLine("Pushed to origin");
-                    }
+                    AnsiConsole.WriteLine("Pushed to origin");
                 }
             }
-            catch (SchemaMismatchException ex)
-            {
-                Console.Error.WriteLine("Error: Schema mode mismatch");
-                Console.Error.WriteLine();
-                Console.Error.WriteLine(ex.Message);
-                Environment.Exit(4);
-            }
-            catch (Exception ex)
-            {
-                Console.Error.WriteLine($"Error: {ex.Message}");
-                Environment.Exit(1);
-            }
-        }, schemaOption, prefixOption, folderOption, messageOption, annotateOption, pushOption, outputOption);
-
-        rootCommand.AddCommand(nextCommand);
-        rootCommand.AddCommand(tagCommand);
-
-        return await rootCommand.InvokeAsync(args);
+            return 0;
+        }
+        catch (SchemaMismatchException ex)
+        {
+            AnsiConsole.MarkupLine("[red]Error: Schema mode mismatch[/]");
+            AnsiConsole.WriteLine();
+            AnsiConsole.WriteLine(ex.Message);
+            return 4;
+        }
+        catch (Exception ex)
+        {
+            AnsiConsole.MarkupLine($"[red]Error: {ex.Message}[/]");
+            return 1;
+        }
     }
 }
 
