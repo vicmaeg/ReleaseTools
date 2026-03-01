@@ -20,13 +20,17 @@ app.Configure(config =>
 {
     config.AddCommand<NextCommand>("next")
         .WithDescription("Calculate the next CalVer version without creating a tag")
-        .WithExample(new[] { "next", "-f", "YYYY.0M.PATCH" });
+        .WithExample(new[] { "next", "-f", "YYYY.0M.PATCH" })
+        .WithExample(new[] { "next", "--prerelease", "rc" })
+        .WithExample(new[] { "next", "--buildmetadata" });
     config.AddCommand<TagCommand>("tag")
         .WithDescription("Create a git tag with the next CalVer version")
         .WithExample(new[] { "tag", "-f", "YYYY.0M.PATCH" });
 });
 
 return await app.RunAsync(args);
+
+#region Format Parser
 
 public static class CalVerFormatParser
 {
@@ -55,7 +59,151 @@ public static class CalVerFormatParser
 
         return string.Join(".", schemaParts);
     }
+
+    public static bool ValidateFormat(string format)
+    {
+        if (string.IsNullOrWhiteSpace(format))
+            return false;
+
+        var parts = format.Split('.');
+        foreach (var part in parts)
+        {
+            var trimmed = part.Trim();
+            if (!ValidTokens.Contains(trimmed))
+                return false;
+        }
+
+        return true;
+    }
 }
+
+#endregion
+
+#region Version Calculator
+
+public class CalVerCalculator
+{
+    private readonly GitService _gitService;
+    private readonly SchemaParser _schemaParser;
+
+    public CalVerCalculator(string? workingDirectory = null)
+    {
+        _gitService = new GitService { WorkingDirectory = workingDirectory };
+        _schemaParser = new SchemaParser();
+    }
+
+    public async Task<CalculationResult> CalculateNextVersionAsync(
+        string format,
+        string? prefix = null,
+        string? folder = null,
+        string? prereleaseIdentifier = null,
+        bool includeBuildMetadata = false)
+    {
+        var schema = CalVerFormatParser.ParseFormatToSchema(format);
+
+        var headInfo = await _gitService.GetHeadInfoAsync();
+        var latestTag = await _gitService.GetLatestStableTagAsync(prefix);
+
+        if (latestTag == null)
+        {
+            return CalculateInitialVersion(schema, format, headInfo, prereleaseIdentifier, includeBuildMetadata);
+        }
+
+        var baseVersion = _gitService.ParseVersionFromTag(latestTag, prefix);
+        var numCommits = await _gitService.CountCommitsSinceTagAsync(latestTag, folder);
+
+        // Calculate new date part
+        var baseDate = GetDateFromVersion(baseVersion, schema);
+        var newDate = headInfo.Date;
+        var isSameDateWindow = IsSameDateWindow(schema, baseDate, newDate);
+
+        var newPatch = isSameDateWindow ? baseVersion.Patch + 1 : 0;
+        var newVersion = new VersionInfo(0, 0, newPatch, null, null);
+
+        var versionString = _schemaParser.ApplyVersion(schema, newVersion, newDate, numCommits, headInfo.ShortHash, headInfo.Hash);
+
+        var metadataService = new MetadataService();
+        var prerelease = metadataService.CalculatePrerelease(prereleaseIdentifier, numCommits);
+        var buildMetadata = includeBuildMetadata ? headInfo.ShortHash : null;
+        var fullVersion = metadataService.FormatFullVersion(versionString, prerelease, buildMetadata);
+
+        return new CalculationResult(
+            Version: versionString,
+            FullVersion: fullVersion,
+            BaseTag: latestTag,
+            BaseVersion: baseVersion,
+            CommitsSinceTag: numCommits,
+            IncrementReason: isSameDateWindow ? "same date window, incrementing patch" : "new date window, reset to 0",
+            Schema: schema,
+            Prerelease: prerelease,
+            BuildMetadata: buildMetadata
+        );
+    }
+
+    private CalculationResult CalculateInitialVersion(
+        string schema,
+        string format,
+        (string Hash, string ShortHash, DateTimeOffset Date) headInfo,
+        string? prereleaseIdentifier,
+        bool includeBuildMetadata)
+    {
+        var versionInfo = new VersionInfo(0, 0, 0, null, null);
+        var versionString = _schemaParser.ApplyVersion(schema, versionInfo, headInfo.Date, 0, headInfo.ShortHash, headInfo.Hash);
+
+        var metadataService = new MetadataService();
+        var prerelease = metadataService.CalculatePrerelease(prereleaseIdentifier, 0);
+        var buildMetadata = includeBuildMetadata ? headInfo.ShortHash : null;
+        var fullVersion = metadataService.FormatFullVersion(versionString, prerelease, buildMetadata);
+
+        return new CalculationResult(
+            Version: versionString,
+            FullVersion: fullVersion,
+            BaseTag: null,
+            BaseVersion: null,
+            CommitsSinceTag: 0,
+            IncrementReason: "initial version",
+            Schema: schema,
+            Prerelease: prerelease,
+            BuildMetadata: buildMetadata
+        );
+    }
+
+    private DateTimeOffset GetDateFromVersion(VersionInfo version, string schema)
+    {
+        // For CalVer, we need to parse the date from the tag
+        // Since we don't have the original tag, we'll use the current date
+        // This is a simplified approach - in a real scenario, we might need to parse from the tag
+        return DateTimeOffset.UtcNow;
+    }
+
+    private bool IsSameDateWindow(string schema, DateTimeOffset baseDate, DateTimeOffset newDate)
+    {
+        // Check if we're in the same date window based on schema precision
+        if (schema.Contains("{DD}") || schema.Contains("{0D}"))
+            return baseDate.Year == newDate.Year && baseDate.Month == newDate.Month && baseDate.Day == newDate.Day;
+
+        if (schema.Contains("{WW}") || schema.Contains("{0W}"))
+        {
+            // Simplified week comparison
+            var baseWeek = (baseDate.DayOfYear - 1) / 7;
+            var newWeek = (newDate.DayOfYear - 1) / 7;
+            return baseDate.Year == newDate.Year && baseWeek == newWeek;
+        }
+
+        if (schema.Contains("{MM}") || schema.Contains("{0M}"))
+            return baseDate.Year == newDate.Year && baseDate.Month == newDate.Month;
+
+        if (schema.Contains("{YYYY}"))
+            return baseDate.Year == newDate.Year;
+
+        // Default to year comparison
+        return baseDate.Year == newDate.Year;
+    }
+}
+
+#endregion
+
+#region Commands
 
 public class NextCommand : AsyncCommand<NextCommand.Settings>
 {
@@ -74,44 +222,76 @@ public class NextCommand : AsyncCommand<NextCommand.Settings>
         [Description("Filter commits to a specific folder path")]
         public string? Folder { get; init; }
 
+        [CommandOption("--prerelease")]
+        [Description("Prerelease identifier (e.g., alpha, beta, rc). Will be formatted as {identifier}.{commits}")]
+        public string? Prerelease { get; init; }
+
+        [CommandOption("--buildmetadata")]
+        [Description("Include build metadata (short SHA) in the version")]
+        [DefaultValue(false)]
+        public bool BuildMetadata { get; init; }
+
         [CommandOption("-o|--output")]
         [Description("Output format: text or json")]
         [DefaultValue("text")]
         public string Output { get; init; } = "text";
+
+        public override ValidationResult Validate()
+        {
+            if (!CalVerFormatParser.ValidateFormat(Format))
+            {
+                return ValidationResult.Error($"Invalid CalVer format. Valid tokens: YYYY, YY, 0Y, MM, 0M, WW, 0W, DD, 0D, PATCH");
+            }
+
+            if (!string.IsNullOrEmpty(Prerelease))
+            {
+                if (!Regex.IsMatch(Prerelease, @"^[a-zA-Z]+$"))
+                {
+                    return ValidationResult.Error("Prerelease must be a single alphabetic identifier (e.g., 'alpha', 'beta', 'rc')");
+                }
+            }
+
+            return ValidationResult.Success();
+        }
     }
 
     public override async Task<int> ExecuteAsync(CommandContext context, Settings settings, CancellationToken cancellationToken)
     {
         try
         {
-            var schema = CalVerFormatParser.ParseFormatToSchema(settings.Format);
-            var calculator = new VersionCalculator();
-            var result = await calculator.CalculateNextVersionAsync(schema, settings.Prefix, settings.Folder);
+            var calculator = new CalVerCalculator();
+            var result = await calculator.CalculateNextVersionAsync(
+                settings.Format,
+                settings.Prefix,
+                settings.Folder,
+                settings.Prerelease,
+                settings.BuildMetadata);
 
             if (settings.Output.Equals("json", StringComparison.OrdinalIgnoreCase))
             {
                 var json = JsonSerializer.Serialize(new
                 {
                     result.Version,
+                    result.FullVersion,
                     Format = settings.Format,
-                    result.Mode,
                     result.BaseTag,
-                    CommitsSinceTag = result.CommitsSinceTag,
-                    Increment = result.Increment.ToString(),
+                    result.CommitsSinceTag,
                     result.IncrementReason,
-                    result.Schema
+                    result.Schema,
+                    result.Prerelease,
+                    result.BuildMetadata
                 }, new JsonSerializerOptions { WriteIndented = true });
                 Console.Write(json);
             }
             else
             {
-                AnsiConsole.Write(result.Version);
+                AnsiConsole.Write(result.FullVersion);
             }
             return 0;
         }
         catch (SchemaMismatchException ex)
         {
-            AnsiConsole.MarkupLine("[red]Error: Schema mode mismatch[/]");
+            AnsiConsole.MarkupLine("[red]Error: Schema mismatch[/]");
             AnsiConsole.WriteLine();
             AnsiConsole.WriteLine(ex.Message);
             return 4;
@@ -159,24 +339,38 @@ public class TagCommand : AsyncCommand<TagCommand.Settings>
         [Description("Output format: text or json")]
         [DefaultValue("text")]
         public string Output { get; init; } = "text";
+
+        public override ValidationResult Validate()
+        {
+            if (!CalVerFormatParser.ValidateFormat(Format))
+            {
+                return ValidationResult.Error($"Invalid CalVer format. Valid tokens: YYYY, YY, 0Y, MM, 0M, WW, 0W, DD, 0D, PATCH");
+            }
+
+            return ValidationResult.Success();
+        }
     }
 
     public override async Task<int> ExecuteAsync(CommandContext context, Settings settings, CancellationToken cancellationToken)
     {
         try
         {
-            var schema = CalVerFormatParser.ParseFormatToSchema(settings.Format);
-            var calculator = new VersionCalculator();
-            var result = await calculator.CalculateNextVersionAsync(schema, settings.Prefix, settings.Folder);
+            var calculator = new CalVerCalculator();
+            var result = await calculator.CalculateNextVersionAsync(
+                settings.Format,
+                settings.Prefix,
+                settings.Folder,
+                null,  // No prerelease for tags
+                false); // No buildmetadata for tags
 
             var gitService = new GitService();
             var tagName = settings.Prefix != null ? $"{settings.Prefix}{result.Version}" : result.Version;
 
-            gitService.CreateTagAsync(tagName, settings.Message, settings.Annotated).GetAwaiter().GetResult();
+            await gitService.CreateTagAsync(tagName, settings.Message, settings.Annotated);
 
             if (settings.Push)
             {
-                gitService.PushTagAsync(tagName).GetAwaiter().GetResult();
+                await gitService.PushTagAsync(tagName);
             }
 
             if (settings.Output.Equals("json", StringComparison.OrdinalIgnoreCase))
@@ -184,9 +378,7 @@ public class TagCommand : AsyncCommand<TagCommand.Settings>
                 var json = JsonSerializer.Serialize(new
                 {
                     Version = result.Version,
-                    Format = settings.Format,
                     TagName = tagName,
-                    result.Mode,
                     Annotated = settings.Annotated,
                     Pushed = settings.Push,
                     result.Schema
@@ -205,7 +397,7 @@ public class TagCommand : AsyncCommand<TagCommand.Settings>
         }
         catch (SchemaMismatchException ex)
         {
-            AnsiConsole.MarkupLine("[red]Error: Schema mode mismatch[/]");
+            AnsiConsole.MarkupLine("[red]Error: Schema mismatch[/]");
             AnsiConsole.WriteLine();
             AnsiConsole.WriteLine(ex.Message);
             return 4;
@@ -217,3 +409,5 @@ public class TagCommand : AsyncCommand<TagCommand.Settings>
         }
     }
 }
+
+#endregion

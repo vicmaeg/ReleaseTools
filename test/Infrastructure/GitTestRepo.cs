@@ -157,18 +157,22 @@ public class GitTestRepoBuilder
             repo.AddFile(file.Path, file.Content);
         }
 
+        // Commit files if any were added
         if (_files.Count > 0)
         {
             repo.Commit(_initialCommitMessage);
         }
-        else
-        {
-            repo.Commit(_initialCommitMessage);
-        }
 
+        // Create tags first (they tag the current HEAD)
         foreach (var tag in _tags)
         {
             repo.Tag(tag.Name, tag.Message);
+        }
+
+        // Then add additional commits (these come AFTER the tags)
+        foreach (var commit in _commits)
+        {
+            repo.Commit(commit.Message, commit.Date);
         }
 
         return repo;

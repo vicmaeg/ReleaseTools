@@ -5,6 +5,5 @@ public record VersionInfo(
     int Minor,
     int Patch,
     string? PreRelease,
-    string? BuildMetadata,
-    VersioningMode Mode
+    string? BuildMetadata
 );

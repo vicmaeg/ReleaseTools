@@ -66,10 +66,7 @@ public class GitService
 
     private bool IsPreRelease(string version)
     {
-        return version.Contains("-alpha") ||
-               version.Contains("-beta") ||
-               version.Contains("-rc") ||
-               Regex.IsMatch(version, @"-[\w.]+");
+        return version.Contains("-") || version.Contains("+");
     }
 
     public async Task<IEnumerable<string>> GetAllTagsAsync(string? prefix = null)
@@ -91,7 +88,7 @@ public class GitService
             .Where(t => !string.IsNullOrEmpty(t));
     }
 
-    public async Task<IEnumerable<CommitInfo>> GetCommitsSinceTagAsync(
+    public async Task<IEnumerable<(string Hash, string ShortHash, string Message, DateTimeOffset Date)>> GetCommitsSinceTagAsync(
         string tag,
         string? folder = null)
     {
@@ -108,9 +105,7 @@ public class GitService
             .ExecuteBufferedAsync();
 
         if (!result.IsSuccess)
-            return Enumerable.Empty<CommitInfo>();
-
-        var commitAnalyzer = new CommitAnalyzer();
+            return Enumerable.Empty<(string, string, string, DateTimeOffset)>();
 
         return result.StandardOutput
             .Split('\n', StringSplitOptions.RemoveEmptyEntries)
@@ -118,11 +113,10 @@ public class GitService
             {
                 var parts = line.Split('\0');
                 if (parts.Length < 4)
-                    return null!;
-                return commitAnalyzer.ParseCommit(parts[0], parts[1], parts[2], DateTimeOffset.Parse(parts[3]));
+                    return (null, null, null, DateTimeOffset.MinValue)!;
+                return (parts[0], parts[1], parts[2], DateTimeOffset.Parse(parts[3]));
             })
-            .Where(c => c != null)
-            .Cast<CommitInfo>();
+            .Where(c => c.Item1 != null);
     }
 
     public async Task<(string Hash, string ShortHash, DateTimeOffset Date)> GetHeadInfoAsync()
@@ -183,16 +177,16 @@ public class GitService
             .ExecuteAsync();
     }
 
-    public VersionInfo ParseVersionFromTag(string tag, string? prefix, VersioningMode mode)
+    public VersionInfo ParseVersionFromTag(string tag, string? prefix)
     {
         var versionPart = prefix != null && tag.StartsWith(prefix)
             ? tag.Substring(prefix.Length)
             : tag;
 
-        return ParseVersionString(versionPart, mode);
+        return ParseVersionString(versionPart);
     }
 
-    public VersionInfo ParseVersionString(string version, VersioningMode mode)
+    public VersionInfo ParseVersionString(string version)
     {
         var preRelease = "";
         var buildMetadata = "";
@@ -206,9 +200,9 @@ public class GitService
 
         if (version.Contains('-'))
         {
-            var dashIndex = version.LastIndexOf('-');
-            var potentialPre = version.Substring(dashIndex);
-            if (potentialPre.Contains('.') || Regex.IsMatch(potentialPre, @"-\w+"))
+            var dashIndex = version.IndexOf('-');
+            var potentialPre = version.Substring(dashIndex + 1);
+            if (Regex.IsMatch(potentialPre, @"^[a-zA-Z0-9.-]+$"))
             {
                 preRelease = potentialPre;
                 version = version.Substring(0, dashIndex);
@@ -217,33 +211,12 @@ public class GitService
 
         var components = version.Split('.');
 
-        return mode switch
-        {
-            VersioningMode.SemVer => new VersionInfo(
-                components.Length > 0 ? int.TryParse(components[0], out var m) ? m : 0 : 0,
-                components.Length > 1 ? int.TryParse(components[1], out var mi) ? mi : 0 : 0,
-                components.Length > 2 ? int.TryParse(components[2], out var p) ? p : 0 : 0,
-                preRelease,
-                buildMetadata,
-                mode
-            ),
-            VersioningMode.CalVer => new VersionInfo(
-                0,
-                0,
-                components.Length > 2 ? int.TryParse(components[2], out var p) ? p : 0 : 0,
-                preRelease,
-                buildMetadata,
-                mode
-            ),
-            VersioningMode.ScalVer => new VersionInfo(
-                components.Length > 0 ? int.TryParse(components[0], out var m) ? m : 0 : 0,
-                0,
-                components.Length > 2 ? int.TryParse(components[2], out var p) ? p : 0 : 0,
-                preRelease,
-                buildMetadata,
-                mode
-            ),
-            _ => new VersionInfo(0, 0, 0, null, null, mode)
-        };
+        return new VersionInfo(
+            components.Length > 0 ? int.TryParse(components[0], out var m) ? m : 0 : 0,
+            components.Length > 1 ? int.TryParse(components[1], out var mi) ? mi : 0 : 0,
+            components.Length > 2 ? int.TryParse(components[2], out var p) ? p : 0 : 0,
+            string.IsNullOrEmpty(preRelease) ? null : preRelease,
+            string.IsNullOrEmpty(buildMetadata) ? null : buildMetadata
+        );
     }
 }
