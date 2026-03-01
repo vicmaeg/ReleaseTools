@@ -1,6 +1,6 @@
 using System;
 using System.Threading.Tasks;
-using ReleaseTools;
+using ReleaseTools.Shared;
 using ReleaseTools.Tests.Infrastructure;
 using Xunit;
 

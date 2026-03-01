@@ -6,13 +6,10 @@
     <IsPackable>false</IsPackable>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <Features>FileBasedProgram</Features>
   </PropertyGroup>
 
   <ItemGroup>
-    <Compile Include="..\src\ver.cs">
-      <Link>ver.cs</Link>
-    </Compile>
+    <ProjectReference Include="..\src\shared\ReleaseTools.Shared.csproj" />
   </ItemGroup>
 
   <ItemGroup>
