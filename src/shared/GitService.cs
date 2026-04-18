@@ -156,6 +156,48 @@ public class GitService
         return int.TryParse(result.StandardOutput.Trim(), out var count) ? count : 0;
     }
 
+    public async Task<int> CountCommitsOnDateAsync(DateTimeOffset date, DateGranularity granularity, string? folder = null)
+    {
+        var (since, until) = GetDateRange(date, granularity);
+
+        var args = $"rev-list --count --since=\"{since:O}\" --until=\"{until:O}\" HEAD";
+        if (!string.IsNullOrEmpty(folder))
+        {
+            args += $" -- \"{folder}\"";
+        }
+
+        var result = await Cli.Wrap("git")
+            .WithArguments(args)
+            .WithWorkingDirectory(WorkingDirectory ?? ".")
+            .WithValidation(CommandResultValidation.None)
+            .ExecuteBufferedAsync();
+
+        if (!result.IsSuccess)
+            return 0;
+
+        return int.TryParse(result.StandardOutput.Trim(), out var count) ? count : 0;
+    }
+
+    private static (DateTimeOffset since, DateTimeOffset until) GetDateRange(DateTimeOffset date, DateGranularity granularity)
+    {
+        return granularity switch
+        {
+            DateGranularity.Day => (date.Date, date.Date.AddDays(1)),
+            DateGranularity.Week => (GetStartOfWeek(date), GetStartOfWeek(date).AddDays(7)),
+            DateGranularity.Month => (new DateTimeOffset(date.Year, date.Month, 1, 0, 0, 0, date.Offset),
+                                       new DateTimeOffset(date.Year, date.Month, 1, 0, 0, 0, date.Offset).AddMonths(1)),
+            DateGranularity.Year => (new DateTimeOffset(date.Year, 1, 1, 0, 0, 0, date.Offset),
+                                      new DateTimeOffset(date.Year + 1, 1, 1, 0, 0, 0, date.Offset)),
+            _ => (date.Date, date.Date.AddDays(1))
+        };
+    }
+
+    private static DateTimeOffset GetStartOfWeek(DateTimeOffset date)
+    {
+        var diff = (date.DayOfWeek - DayOfWeek.Monday + 7) % 7;
+        return date.AddDays(-diff).Date;
+    }
+
     public async Task CreateTagAsync(string tagName, string? message = null, bool annotated = false)
     {
         var tagMessage = message ?? $"Release {tagName}";

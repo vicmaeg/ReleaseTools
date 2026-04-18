@@ -4,16 +4,6 @@ namespace ReleaseTools.Shared;
 
 public class SchemaParser
 {
-    private static readonly HashSet<string> DateTokens = new()
-    {
-        "YYYY", "YY", "0Y", "MM", "0M", "WW", "0W", "DD", "0D"
-    };
-
-    private static readonly HashSet<string> VersionTokens = new()
-    {
-        "MAJOR", "MINOR", "PATCH"
-    };
-
     public IEnumerable<string> GetSchemaTokens(string schema)
     {
         var regex = new Regex(@"\{(\w+)\}");
@@ -53,6 +43,17 @@ public class SchemaParser
         result = result.Replace("{NUM_COMMITS}", numCommits.ToString());
 
         return result;
+    }
+
+    public static DateGranularity GetGranularityFromScalVerFormat(string dateFormat)
+    {
+        return dateFormat.ToUpperInvariant().Trim() switch
+        {
+            "YYYYMMDD" => DateGranularity.Day,
+            "YYYYMM" => DateGranularity.Month,
+            "YYYY" => DateGranularity.Year,
+            _ => DateGranularity.Month
+        };
     }
 
     private int GetWeekOfYear(DateTimeOffset date)

@@ -2,12 +2,12 @@ namespace ReleaseTools.Shared;
 
 public class MetadataService
 {
-    public string? CalculatePrerelease(string? identifier, int commitsSinceTag)
+    public string? CalculatePrerelease(string? identifier)
     {
         if (string.IsNullOrEmpty(identifier))
             return null;
 
-        return $"{identifier}.{commitsSinceTag}";
+        return identifier;
     }
 
     public string FormatFullVersion(string version, string? prerelease, string? buildMetadata)
