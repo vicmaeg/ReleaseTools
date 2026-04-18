@@ -333,3 +333,4 @@ ASALocalRun/
 .DS_Store
 
 cov.opencover.xml
+/.agent-shell/
