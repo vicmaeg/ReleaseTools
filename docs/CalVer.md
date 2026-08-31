@@ -2,188 +2,89 @@
 
 ## Overview
 
-Calendar Versioning is a versioning scheme that uses the release date as the primary version component. It's ideal for projects with time-sensitive releases or large/constantly-changing scope.
+Calendar Versioning uses the release date as the primary version component. It's ideal for projects with time-sensitive releases or constantly-changing scope.
 
-## Specification
+The `calver` tool builds the version from a configurable token format. The date comes from the effective **HEAD commit date in UTC** (not the current date), which makes versions reproducible. With `--folder`, effective HEAD means the latest commit touching that tracked folder.
 
-The version format includes date components and an optional patch number to prevent clashing:
+## Tokens
 
-- **YYYY** - Full year (2006, 2016, 2106)
-- **YY** - Short year (6, 16, 106)
-- **0Y** - Zero-padded year (06, 16, 106)
-- **MM** - Short month (1, 2, ..., 12)
-- **0M** - Zero-padded month (01, 02, ..., 12)
-- **WW** - Short week (1, 2, ..., 52)
-- **0W** - Zero-padded week (01, 02, ..., 52)
-- **DD** - Short day (1, 2, ..., 31)
-- **0D** - Zero-padded day (01, 02, ..., 31)
-- **PATCH** - Incremental counter to avoid clashing
+| Token | Renders | Example (Feb 23, 2025) |
+|-------|---------|------------------------|
+| `YYYY` | Full year | `2025` |
+| `YY` | Short year | `25` |
+| `0Y` | Zero-padded short year | `25` |
+| `MM` | Month | `2` |
+| `0M` | Zero-padded month | `02` |
+| `WW` | ISO week | `8` |
+| `0W` | Zero-padded ISO week | `08` |
+| `DD` | Day | `23` |
+| `0D` | Zero-padded day | `23` |
+| `PATCH` | Commits in the date window | `3` |
 
-## Usage with ReleaseTools
+Tokens may be separated by `.` or concatenated (`YY.0M0D.PATCH` → `25.0223.1`).
 
-### Basic Usage
+### Validation Rules
+
+- Exactly one year token is required.
+- Month and week tokens are mutually exclusive.
+- Day tokens require a month token.
+- Tokens must be ordered: Year → Month/Week → Day → PATCH.
+- No duplicate token categories (e.g. two year tokens).
+
+## PATCH Semantics
+
+`PATCH` is the **number of commits within the current date window** — the finest date unit in the format:
+
+- `YYYY.0M.PATCH` → commits in the HEAD commit's month
+- `YYYY.0M.0D.PATCH` → commits on the HEAD commit's day
+- `YYYY.0W.PATCH` → commits in the HEAD commit's ISO week (weeks start Monday)
+- `YYYY.PATCH` → commits in the HEAD commit's year
+
+The count resets naturally as the window rolls over, no tags involved. If the format has no `PATCH` token, no count is appended (`YYYY.0M` → `2025.02`).
+
+## Usage
 
 ```bash
-# Calculate next version (year.month.patch)
-ver next --schema "{YYYY}.{0M}.{PATCH}"
-
-# Create and push tag
-ver tag --schema "{YYYY}.{0M}.{PATCH}" --push
+dotnet run --file src/calver.cs -- [options]
 ```
 
-### Common Schema Formats
+### Options
 
-#### Ubuntu-style (YY.0M.MICRO)
+| Option | Description |
+|--------|-------------|
+| `-f, --format <FORMAT>` | Token format (default: `YYYY.0M.PATCH`) |
+| `--folder <PATH>` | Use a tracked repository-relative folder's history and effective HEAD |
+| `-p, --prerelease <ID>` | Append prerelease identifier (e.g. `alpha`, `rc`) |
+| `-b, --buildmetadata` | Append short commit SHA as build metadata |
+| `-o, --output <text\|json>` | Output format (default: `text`) |
 
-```bash
-ver next --schema "{YY}.{0M}.{PATCH}"
-# Output: 25.02.0 (February 2025)
-```
-
-#### Full Year (YYYY.0M.MICRO)
-
-```bash
-ver next --schema "{YYYY}.{0M}.{PATCH}"
-# Output: 2025.02.0
-```
-
-#### Daily (YYYY.0M.0D)
+## Examples
 
 ```bash
-ver next --schema "{YYYY}.{0M}{0D}.{PATCH}"
-# Output: 2025.0223.0 (February 23, 2025)
-```
+# Monthly cadence, 3 commits this month
+dotnet run --file src/calver.cs
+# 2025.02.3
 
-#### Ultra-detailed (YYYY.MM.DD)
+# Ubuntu-style
+dotnet run --file src/calver.cs -- -f YY.0M.PATCH
+# 25.02.3
 
-```bash
-ver next --schema "{YYYY}.{MM}.{DD}"
-# Output: 2025.2.23 (no patch, purely date-based)
-```
+# Daily
+dotnet run --file src/calver.cs -- -f YYYY.0M.0D.PATCH
+# 2025.02.23.1
 
-### With Prefix (Monorepo)
+# Pure date, no patch
+dotnet run --file src/calver.cs -- -f YYYY.0M
+# 2025.02
 
-```bash
-ver next --schema "{YYYY}.{0M}.{PATCH}" --prefix "api-"
-# Output: api-2025.02.0
-```
-
-## Date Source
-
-ReleaseTools uses the **commit date** (not current date) to determine the version. This provides:
-- **Reproducibility**: Same commit always produces the same version
-- **Traceability**: Easy to trace version back to specific commit
-- **Accuracy**: Reflects when changes were actually made
-
-## Clashing Prevention
-
-When multiple releases occur within the same date window (same day/month/year), the PATCH number is incremented to prevent clashing:
-
-### Example: Same Month
-
-```bash
-# First release in February 2025
-ver next --schema "{YYYY}.{0M}.{PATCH}"
-# Output: 2025.02.0
-
-# Second release in same month
-ver next --schema "{YYYY}.{0M}.{PATCH}"
-# Output: 2025.02.1
-
-# Third release in same month
-ver next --schema "{YYYY}.{0M}.{PATCH}"
-# Output: 2025.02.2
-```
-
-### Example: Same Day
-
-```bash
-# Schema: YYYY.0M.0D.PATCH
-ver next --schema "{YYYY}.{0M}{0D}.{PATCH}"
-# First: 2025.0223.0
-# Second: 2025.0223.1
-# Third: 2025.0223.2
-```
-
-## Date Window Changes
-
-When the date window changes (e.g., new month), the PATCH resets to 0:
-
-```bash
-# Current tag: 2025.02.5
-# Next commit is in March 2025
-ver next --schema "{YYYY}.{0M}.{PATCH}"
-# Output: 2025.03.0 (PATCH reset)
-```
-
-## Pre-release Versions
-
-```bash
-ver next --schema "{YYYY}.{0M}.{PATCH}-alpha.{NUM_COMMITS}"
-# Output: 2025.02.0-alpha.5
-
-ver next --schema "{YYYY}.{0M}{0D}.{PATCH}-rc.{NUM_COMMITS}"
-# Output: 2025.0223.0-rc.2
-```
-
-## Initial Version
-
-When no tags exist, ReleaseTools uses the commit date with PATCH=0:
-
-```bash
-ver next --schema "{YYYY}.{0M}.{PATCH}"
-# Output: 2025.02.0 (based on commit date)
+# Prerelease + build metadata
+dotnet run --file src/calver.cs -- -p rc -b
+# 2025.02.3-rc+a1b2c3d
 ```
 
 ## When to Use CalVer
 
-CalVer is ideal for:
-
-- **Large systems and frameworks** (like Ubuntu, Twisted)
-- **Projects with constantly-changing scope**
-- **Time-sensitive releases** (security updates, compliance changes)
-- **Projects where knowing when something was released matters more than API compatibility**
-
-## Comparison with Other Schemes
-
-| Project | Schema | Example |
-|---------|--------|---------|
-| Ubuntu | YY.0M.MICRO | 24.04 |
-| Twisted | YY.MM.MICRO | 24.01 |
-| youtube-dl | YYYY.0M.0D | 2025.02.23 |
-| pip | YY.MINOR.MICRO | 25.01 |
-| certifi | YYYY.MM.DD | 2025.02.23 |
-
-## Examples
-
-### Example 1: First Release
-
-```bash
-# Fresh repository with commits
-ver next --schema "{YYYY}.{0M}.{PATCH}"
-# Output: 2025.02.0 (based on commit date)
-```
-
-### Example 2: Monthly Releases
-
-```bash
-# Current tag: 2025.01.3
-# Next commit in same month
-ver next --schema "{YYYY}.{0M}.{PATCH}"
-# Output: 2025.01.4
-
-# Next commit in February
-ver next --schema "{YYYY}.{0M}.{PATCH}"
-# Output: 2025.02.0
-```
-
-### Example 3: Daily Releases
-
-```bash
-# Schema with day: YYYY.0M.0D.PATCH
-# Multiple releases same day
-ver next --schema "{YYYY}.{0M}{0D}.{PATCH}"
-# First: 2025.0223.0
-# Second: 2025.0223.1
-# Third: 2025.0223.2
-```
+- Large systems and frameworks (like Ubuntu, Twisted)
+- Projects with constantly-changing scope
+- Time-sensitive releases (security updates, compliance changes)
+- Projects where knowing *when* something was released matters more than API compatibility
