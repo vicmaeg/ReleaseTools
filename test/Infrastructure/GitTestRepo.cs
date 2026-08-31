@@ -21,7 +21,7 @@ public class GitTestRepo : IDisposable
 
     private void InitializeRepo()
     {
-        RunGit("init");
+        RunGit("init -b main");
         RunGit("config user.email \"test@test.com\"");
         RunGit("config user.name \"Test User\"");
 
@@ -48,12 +48,24 @@ public class GitTestRepo : IDisposable
         RunGit($"add \"{relativePath}\"");
     }
 
-    public void Commit(string message, DateTimeOffset? date = null)
+    public void Commit(string message, DateTimeOffset? date = null, string? body = null)
     {
-        var dateArg = date.HasValue
-            ? $"--date=\"{date.Value:yyyy-MM-dd HH:mm:ss zzz}\""
-            : "";
-        RunGit($"commit --allow-empty -m \"{message}\" {dateArg}");
+        var args = $"commit --allow-empty -m \"{message}\"";
+        if (body != null)
+        {
+            args += $" -m \"{body}\"";
+        }
+        if (date.HasValue)
+        {
+            args += $" --date=\"{date.Value:yyyy-MM-dd HH:mm:ss zzz}\"";
+        }
+
+        // The tools read the committer date (%ci), so it must be set explicitly for dated commits
+        var env = date.HasValue
+            ? new Dictionary<string, string?> { ["GIT_COMMITTER_DATE"] = date.Value.ToString("yyyy-MM-dd HH:mm:ss zzz") }
+            : null;
+
+        RunGit(args, env);
     }
 
     public void Tag(string name, string? message = null)
@@ -69,24 +81,55 @@ public class GitTestRepo : IDisposable
         RunGit($"checkout -b {branch}");
     }
 
-    public void CheckoutMain()
+    public void CheckoutExisting(string branch)
     {
-        RunGit("checkout -b main");
+        RunGit($"checkout {branch}");
     }
 
-    private void RunGit(string args)
+    public void Merge(string branch)
+    {
+        RunGit($"merge --no-ff --no-edit {branch}");
+    }
+
+    public string GetShortHead()
+    {
+        return RunGitWithOutput("rev-parse --short HEAD");
+    }
+
+    private void RunGit(string args, IReadOnlyDictionary<string, string?>? env = null)
+    {
+        var cli = Cli.Wrap("git")
+            .WithWorkingDirectory(RepoPath)
+            .WithArguments(args)
+            .WithValidation(CommandResultValidation.None);
+
+        if (env != null)
+        {
+            cli = cli.WithEnvironmentVariables(env);
+        }
+
+        var result = cli.ExecuteBufferedAsync().GetAwaiter().GetResult();
+
+        if (!result.IsSuccess)
+        {
+            throw new InvalidOperationException($"Git command failed: git {args}\n{result.StandardError}");
+        }
+    }
+
+    private string RunGitWithOutput(string args)
     {
         var result = Cli.Wrap("git")
             .WithWorkingDirectory(RepoPath)
             .WithArguments(args)
             .WithValidation(CommandResultValidation.None)
             .ExecuteBufferedAsync()
-            .GetAwaiter().GetResult();
+            .GetAwaiter()
+            .GetResult();
 
         if (!result.IsSuccess)
-        {
             throw new InvalidOperationException($"Git command failed: git {args}\n{result.StandardError}");
-        }
+
+        return result.StandardOutput.Trim();
     }
 
     public void Dispose()

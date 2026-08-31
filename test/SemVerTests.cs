@@ -1,6 +1,7 @@
 using System;
+using System.IO;
+using System.Text.Json;
 using System.Threading.Tasks;
-using ReleaseTools.Shared;
 using ReleaseTools.Tests.Infrastructure;
 using Xunit;
 
@@ -15,11 +16,10 @@ public class SemVerTests
             .WithCommit("feat: initial feature")
             .Build();
 
-        var calculator = new SemVerCalculator(repo.RepoPath);
-        var result = await calculator.CalculateNextVersionAsync();
+        var (exitCode, stdout, _) = await ToolRunner.RunAsync("semver", repo.RepoPath);
 
-        Assert.Equal("0.1.0", result.Version);
-        Assert.Equal("0.1.0", result.FullVersion);
+        Assert.Equal(0, exitCode);
+        Assert.Equal("0.1.0", stdout);
     }
 
     [Fact]
@@ -30,55 +30,10 @@ public class SemVerTests
             .WithCommit("feat: add new feature")
             .Build();
 
-        var calculator = new SemVerCalculator(repo.RepoPath);
-        var result = await calculator.CalculateNextVersionAsync();
+        var (exitCode, stdout, _) = await ToolRunner.RunAsync("semver", repo.RepoPath);
 
-        Assert.Equal("1.1.0", result.Version);
-        Assert.Equal("feat commits detected", result.IncrementReason);
-    }
-
-    [Fact]
-    public async Task BreakingChange_Increments_Major()
-    {
-        using var repo = new GitTestRepoBuilder()
-            .WithTag("1.0.0")
-            .WithCommit("feat!: breaking API change")
-            .Build();
-
-        var calculator = new SemVerCalculator(repo.RepoPath);
-        var result = await calculator.CalculateNextVersionAsync();
-
-        Assert.Equal("2.0.0", result.Version);
-        Assert.Equal("breaking changes detected", result.IncrementReason);
-    }
-
-    [Fact]
-    public async Task BreakingChangeInBody_Increments_Major()
-    {
-        using var repo = new GitTestRepoBuilder()
-            .WithTag("1.0.0")
-            .WithCommit("feat: add new feature\n\nBREAKING CHANGE: API redesigned")
-            .Build();
-
-        var calculator = new SemVerCalculator(repo.RepoPath);
-        var result = await calculator.CalculateNextVersionAsync();
-
-        Assert.Equal("2.0.0", result.Version);
-    }
-
-    [Fact]
-    public async Task FixCommit_Increments_Patch()
-    {
-        using var repo = new GitTestRepoBuilder()
-            .WithTag("1.0.0")
-            .WithCommit("fix: resolve issue")
-            .Build();
-
-        var calculator = new SemVerCalculator(repo.RepoPath);
-        var result = await calculator.CalculateNextVersionAsync();
-
-        Assert.Equal("1.0.1", result.Version);
-        Assert.Equal("fix/perf commits detected", result.IncrementReason);
+        Assert.Equal(0, exitCode);
+        Assert.Equal("1.1.0", stdout);
     }
 
     [Fact]
@@ -91,95 +46,35 @@ public class SemVerTests
             .WithCommit("feat: add feature C")
             .Build();
 
-        var calculator = new SemVerCalculator(repo.RepoPath);
-        var result = await calculator.CalculateNextVersionAsync();
+        var (_, stdout, _) = await ToolRunner.RunAsync("semver", repo.RepoPath);
 
-        Assert.Equal("1.1.0", result.Version);
+        Assert.Equal("1.1.0", stdout);
     }
 
     [Fact]
-    public async Task PreReleaseTags_AreSkipped()
+    public async Task BreakingChange_Increments_Major()
     {
         using var repo = new GitTestRepoBuilder()
             .WithTag("1.0.0")
-            .WithTag("1.1.0-alpha.1")
-            .WithTag("1.1.0-beta.1")
+            .WithCommit("feat!: breaking API change")
             .Build();
 
-        var calculator = new SemVerCalculator(repo.RepoPath);
-        var result = await calculator.CalculateNextVersionAsync();
+        var (_, stdout, _) = await ToolRunner.RunAsync("semver", repo.RepoPath);
 
-        Assert.Equal("1.0.0", result.BaseTag);
+        Assert.Equal("2.0.0", stdout);
     }
 
     [Fact]
-    public async Task MonorepoPrefix_FiltersTags()
-    {
-        using var repo = new GitTestRepoBuilder()
-            .WithTag("api-1.0.0")
-            .WithTag("web-2.0.0")
-            .WithCommit("feat: new api feature")
-            .Build();
-
-        var calculator = new SemVerCalculator(repo.RepoPath);
-        var result = await calculator.CalculateNextVersionAsync(
-            prefix: "api-");
-
-        Assert.Equal("1.1.0", result.Version);
-    }
-
-    [Fact]
-    public async Task Prerelease_GeneratesCorrectly()
+    public async Task FixCommit_Increments_Patch()
     {
         using var repo = new GitTestRepoBuilder()
             .WithTag("1.0.0")
-            .WithCommit("feat: new feature")
-            .WithCommit("feat: another feature")
+            .WithCommit("fix: resolve issue")
             .Build();
 
-        var calculator = new SemVerCalculator(repo.RepoPath);
-        var result = await calculator.CalculateNextVersionAsync(
-            prereleaseIdentifier: "alpha");
+        var (_, stdout, _) = await ToolRunner.RunAsync("semver", repo.RepoPath);
 
-        Assert.Equal("1.1.0", result.Version);
-        Assert.Equal("1.1.0-alpha.2", result.FullVersion);
-        Assert.Equal("alpha.2", result.Prerelease);
-    }
-
-    [Fact]
-    public async Task BuildMetadata_GeneratesCorrectly()
-    {
-        using var repo = new GitTestRepoBuilder()
-            .WithTag("1.0.0")
-            .WithCommit("feat: new feature")
-            .Build();
-
-        var calculator = new SemVerCalculator(repo.RepoPath);
-        var result = await calculator.CalculateNextVersionAsync(
-            includeBuildMetadata: true);
-
-        Assert.Equal("1.1.0", result.Version);
-        Assert.NotNull(result.BuildMetadata);
-        Assert.Contains("+", result.FullVersion);
-    }
-
-    [Fact]
-    public async Task PrereleaseAndBuildMetadata_GeneratesCorrectly()
-    {
-        using var repo = new GitTestRepoBuilder()
-            .WithTag("1.0.0")
-            .WithCommit("feat: new feature")
-            .Build();
-
-        var calculator = new SemVerCalculator(repo.RepoPath);
-        var result = await calculator.CalculateNextVersionAsync(
-            prereleaseIdentifier: "beta",
-            includeBuildMetadata: true);
-
-        Assert.Equal("1.1.0", result.Version);
-        Assert.Equal("beta.1", result.Prerelease);
-        Assert.NotNull(result.BuildMetadata);
-        Assert.Matches(@"^1\.1\.0-beta\.1\+[a-f0-9]+$", result.FullVersion);
+        Assert.Equal("1.0.1", stdout);
     }
 
     [Fact]
@@ -190,10 +85,9 @@ public class SemVerTests
             .WithCommit("perf: optimize database queries")
             .Build();
 
-        var calculator = new SemVerCalculator(repo.RepoPath);
-        var result = await calculator.CalculateNextVersionAsync();
+        var (_, stdout, _) = await ToolRunner.RunAsync("semver", repo.RepoPath);
 
-        Assert.Equal("1.0.1", result.Version);
+        Assert.Equal("1.0.1", stdout);
     }
 
     [Fact]
@@ -204,10 +98,9 @@ public class SemVerTests
             .WithCommit("revert: feat: old feature")
             .Build();
 
-        var calculator = new SemVerCalculator(repo.RepoPath);
-        var result = await calculator.CalculateNextVersionAsync();
+        var (_, stdout, _) = await ToolRunner.RunAsync("semver", repo.RepoPath);
 
-        Assert.Equal("1.0.1", result.Version);
+        Assert.Equal("1.0.1", stdout);
     }
 
     [Fact]
@@ -220,221 +113,380 @@ public class SemVerTests
             .WithCommit("style: format code")
             .Build();
 
-        var calculator = new SemVerCalculator(repo.RepoPath);
-        var result = await calculator.CalculateNextVersionAsync();
+        var (_, stdout, _) = await ToolRunner.RunAsync("semver", repo.RepoPath);
 
-        Assert.Equal("1.0.0", result.Version);
-        Assert.Equal("no version-relevant commits", result.IncrementReason);
+        Assert.Equal("1.0.0", stdout);
     }
 
     [Fact]
-    public async Task WithBuildMetadata_Flag_GeneratesShortSha()
+    public async Task PreReleaseTags_AreSkipped()
+    {
+        using var repo = new GitTestRepoBuilder()
+            .WithTag("1.0.0")
+            .WithTag("1.1.0-alpha.1")
+            .WithTag("1.1.0-beta.1")
+            .Build();
+
+        var (exitCode, stdout, _) = await ToolRunner.RunAsync("semver", repo.RepoPath, "-o", "json");
+
+        Assert.Equal(0, exitCode);
+        using var json = JsonDocument.Parse(stdout);
+        Assert.Equal("1.0.0", json.RootElement.GetProperty("BaseTag").GetString());
+        Assert.Equal("1.0.0", json.RootElement.GetProperty("Version").GetString());
+    }
+
+    [Fact]
+    public async Task MonorepoPrefix_FiltersTags()
+    {
+        using var repo = new GitTestRepoBuilder()
+            .WithTag("api-1.0.0")
+            .WithTag("web-2.0.0")
+            .WithCommit("feat: new api feature")
+            .Build();
+
+        var (_, stdout, _) = await ToolRunner.RunAsync("semver", repo.RepoPath, "-p", "api-");
+
+        Assert.Equal("1.1.0", stdout);
+    }
+
+    [Fact]
+    public async Task FolderFilter_OnlyCountsFolderCommits()
+    {
+        using var repo = new GitTestRepo();
+        repo.AddFile("web/page.txt", "initial web");
+        repo.Commit("chore: add web app");
+        repo.Tag("1.0.0");
+        repo.AddFile("api/service.txt", "api change");
+        repo.Commit("feat: api feature");
+
+        var (_, apiStdout, _) = await ToolRunner.RunAsync("semver", repo.RepoPath, "-f", "api");
+        var (_, webStdout, _) = await ToolRunner.RunAsync("semver", repo.RepoPath, "-f", "web");
+
+        Assert.Equal("1.1.0", apiStdout);
+        Assert.Equal("1.0.0", webStdout);
+    }
+
+    [Fact]
+    public async Task Prerelease_AppendsIdentifier()
     {
         using var repo = new GitTestRepoBuilder()
             .WithTag("1.0.0")
             .WithCommit("feat: new feature")
             .Build();
 
-        var calculator = new SemVerCalculator(repo.RepoPath);
-        var result = await calculator.CalculateNextVersionAsync(
-            includeBuildMetadata: true);
+        var (_, stdout, _) = await ToolRunner.RunAsync("semver", repo.RepoPath, "--prerelease", "alpha");
 
-        Assert.NotNull(result.BuildMetadata);
-        Assert.Equal(7, result.BuildMetadata!.Length); // short SHA is 7 chars
-        Assert.EndsWith($"+{result.BuildMetadata}", result.FullVersion);
+        Assert.Equal("1.1.0-alpha.1", stdout);
+    }
+
+    [Fact]
+    public async Task BuildMetadata_AppendsShortSha()
+    {
+        using var repo = new GitTestRepoBuilder()
+            .WithTag("1.0.0")
+            .WithCommit("feat: new feature")
+            .Build();
+
+        var (_, stdout, _) = await ToolRunner.RunAsync("semver", repo.RepoPath, "-b");
+
+        Assert.Matches(@"^1\.1\.0\+[a-f0-9]{7}$", stdout);
+    }
+
+    [Fact]
+    public async Task PrereleaseAndBuildMetadata_Combined()
+    {
+        using var repo = new GitTestRepoBuilder()
+            .WithTag("1.0.0")
+            .WithCommit("feat: new feature")
+            .Build();
+
+        var (_, stdout, _) = await ToolRunner.RunAsync("semver", repo.RepoPath, "--prerelease", "beta", "-b");
+
+        Assert.Matches(@"^1\.1\.0-beta\.1\+[a-f0-9]{7}$", stdout);
+    }
+
+    [Fact]
+    public async Task InvalidPrerelease_Fails()
+    {
+        using var repo = new GitTestRepoBuilder().Build();
+
+        var (exitCode, _, _) = await ToolRunner.RunAsync("semver", repo.RepoPath, "--prerelease", "alpha beta");
+
+        Assert.NotEqual(0, exitCode);
+    }
+
+    [Fact]
+    public async Task JsonOutput_ContainsAllFields()
+    {
+        using var repo = new GitTestRepoBuilder()
+            .WithTag("1.0.0")
+            .WithCommit("feat: new feature")
+            .Build();
+
+        var (exitCode, stdout, _) = await ToolRunner.RunAsync("semver", repo.RepoPath, "-o", "json");
+
+        Assert.Equal(0, exitCode);
+        using var json = JsonDocument.Parse(stdout);
+        Assert.Equal("1.1.0", json.RootElement.GetProperty("Version").GetString());
+        Assert.Equal("1.1.0", json.RootElement.GetProperty("FullVersion").GetString());
+        Assert.Equal("1.0.0", json.RootElement.GetProperty("BaseTag").GetString());
+        Assert.Equal(1, json.RootElement.GetProperty("CommitCount").GetInt32());
+        Assert.Equal("feat commits detected", json.RootElement.GetProperty("IncrementReason").GetString());
+        Assert.Equal("{MAJOR}.{MINOR}.{PATCH}", json.RootElement.GetProperty("Schema").GetString());
+    }
+
+    [Theory]
+    [InlineData("feat(core-api): add endpoint")]
+    [InlineData("feat(web/client): add screen")]
+    [InlineData("feat(data.access): add query")]
+    public async Task FlexibleScopes_IncrementMinor(string message)
+    {
+        using var repo = new GitTestRepoBuilder()
+            .WithTag("1.0.0")
+            .WithCommit(message)
+            .Build();
+
+        var (exitCode, stdout, _) = await ToolRunner.RunAsync("semver", repo.RepoPath);
+
+        Assert.Equal(0, exitCode);
+        Assert.Equal("1.1.0", stdout);
+    }
+
+    [Theory]
+    [InlineData("BREAKING CHANGE: the old API was removed")]
+    [InlineData("BREAKING-CHANGE: the old API was removed")]
+    public async Task BreakingFooter_IncrementsMajor(string footer)
+    {
+        using var repo = new GitTestRepo();
+        repo.Tag("1.2.3");
+        repo.Commit("feat: replace API", body: footer);
+
+        var (_, stdout, _) = await ToolRunner.RunAsync("semver", repo.RepoPath);
+
+        Assert.Equal("2.0.0", stdout);
+    }
+
+    [Fact]
+    public async Task BuildMetadataTag_IsAStableBase()
+    {
+        using var repo = new GitTestRepoBuilder()
+            .WithTag("1.2.3+build.7")
+            .WithCommit("fix: repair issue")
+            .Build();
+
+        var (_, stdout, _) = await ToolRunner.RunAsync("semver", repo.RepoPath);
+
+        Assert.Equal("1.2.4", stdout);
+    }
+
+    [Fact]
+    public async Task VPrefix_MustBeExplicit()
+    {
+        using var repo = new GitTestRepoBuilder()
+            .WithTag("v1.2.3")
+            .WithCommit("fix: repair issue")
+            .Build();
+
+        var (_, bareOutput, _) = await ToolRunner.RunAsync("semver", repo.RepoPath);
+        var (_, prefixedOutput, _) = await ToolRunner.RunAsync("semver", repo.RepoPath, "--prefix", "v");
+
+        Assert.Equal("0.1.0", bareOutput);
+        Assert.Equal("1.2.4", prefixedOutput);
+    }
+
+    [Fact]
+    public async Task HighestReachableStableTag_IsSelected()
+    {
+        using var repo = new GitTestRepo();
+        repo.Tag("1.0.0");
+        repo.Commit("chore: prepare two");
+        repo.Tag("2.0.0");
+        repo.Commit("chore: prepare alpha");
+        repo.Tag("2.1.0-alpha.1");
+        repo.Commit("fix: repair issue");
+
+        var (_, stdout, _) = await ToolRunner.RunAsync("semver", repo.RepoPath);
+
+        Assert.Equal("2.0.1", stdout);
+    }
+
+    [Fact]
+    public async Task HighestVersionWinsWhenLowerStableTagIsNearer()
+    {
+        using var repo = new GitTestRepo();
+        repo.Tag("2.0.0");
+        repo.Commit("chore: maintain older line");
+        repo.Tag("1.5.0");
+        repo.Commit("fix: repair issue");
+
+        var (_, stdout, _) = await ToolRunner.RunAsync("semver", repo.RepoPath);
+
+        Assert.Equal("2.0.1", stdout);
+    }
+
+    [Fact]
+    public async Task PlainTagWinsTieWithBuildMetadataTag()
+    {
+        using var repo = new GitTestRepo();
+        repo.Tag("1.2.3");
+        repo.Tag("1.2.3+build.7");
+
+        var (_, stdout, _) = await ToolRunner.RunAsync("semver", repo.RepoPath, "--output", "json");
+
+        using var json = JsonDocument.Parse(stdout);
+        Assert.Equal("1.2.3", json.RootElement.GetProperty("BaseTag").GetString());
+    }
+
+    [Fact]
+    public async Task Prefix_IsMatchedExactly()
+    {
+        using var repo = new GitTestRepoBuilder()
+            .WithTag("api.v-1.0.0")
+            .WithCommit("feat: add endpoint")
+            .Build();
+
+        var (_, stdout, _) = await ToolRunner.RunAsync(
+            "semver", repo.RepoPath, "--prefix", "api.v-");
+
+        Assert.Equal("1.1.0", stdout);
+    }
+
+    [Fact]
+    public async Task TagOnUnmergedBranch_IsIgnored()
+    {
+        using var repo = new GitTestRepo();
+        repo.Tag("1.0.0");
+        repo.Checkout("experimental");
+        repo.Commit("feat: future feature");
+        repo.Tag("9.0.0");
+        repo.CheckoutExisting("main");
+        repo.Commit("fix: current fix");
+
+        var (_, stdout, _) = await ToolRunner.RunAsync("semver", repo.RepoPath);
+
+        Assert.Equal("1.0.1", stdout);
+    }
+
+    [Fact]
+    public async Task MalformedAndUnrelatedTags_AreIgnored()
+    {
+        using var repo = new GitTestRepo();
+        repo.Tag("1.0.0");
+        repo.Tag("01.2.3");
+        repo.Tag("deployment-ready");
+        repo.Commit("fix: current fix");
+
+        var (_, stdout, _) = await ToolRunner.RunAsync("semver", repo.RepoPath);
+
+        Assert.Equal("1.0.1", stdout);
+    }
+
+    [Fact]
+    public async Task NoRelevantChange_OmitsRequestedPrerelease()
+    {
+        using var repo = new GitTestRepoBuilder()
+            .WithTag("1.0.0")
+            .WithCommit("docs: clarify usage")
+            .Build();
+
+        var (_, stdout, _) = await ToolRunner.RunAsync(
+            "semver", repo.RepoPath, "--prerelease", "alpha");
+
+        Assert.Equal("1.0.0", stdout);
+    }
+
+    [Fact]
+    public async Task InitialPrerelease_CountsMatchingHistory()
+    {
+        using var repo = new GitTestRepo();
+
+        var (_, stdout, _) = await ToolRunner.RunAsync(
+            "semver", repo.RepoPath, "--prerelease", "alpha");
+
+        Assert.Equal("0.1.0-alpha.1", stdout);
+    }
+
+    [Fact]
+    public async Task FolderScope_UsesLatestFolderCommitForBuildMetadata()
+    {
+        using var repo = new GitTestRepo();
+        repo.AddFile("api/service.txt", "api");
+        repo.Commit("feat: api");
+        var apiSha = repo.GetShortHead();
+        repo.AddFile("web/page.txt", "web");
+        repo.Commit("feat: web");
+
+        var (_, stdout, _) = await ToolRunner.RunAsync(
+            "semver", repo.RepoPath, "--folder", "api", "--buildmetadata");
+
+        Assert.Equal($"0.1.0+{apiSha}", stdout);
+    }
+
+    [Fact]
+    public async Task MissingFolder_FailsClearly()
+    {
+        using var repo = new GitTestRepo();
+
+        var (exitCode, stdout, stderr) = await ToolRunner.RunAsync(
+            "semver", repo.RepoPath, "--folder", "missing");
+
+        Assert.NotEqual(0, exitCode);
+        Assert.Empty(stdout);
+        Assert.Contains("does not contain tracked files", stderr);
+    }
+
+    [Theory]
+    [InlineData("../api")]
+    [InlineData("apps//api")]
+    public async Task EscapingOrUnnormalizedFolder_Fails(string folder)
+    {
+        using var repo = new GitTestRepo();
+
+        var (exitCode, _, _) = await ToolRunner.RunAsync(
+            "semver", repo.RepoPath, "--folder", folder);
+
+        Assert.NotEqual(0, exitCode);
+    }
+
+    [Fact]
+    public async Task AbsoluteFolder_Fails()
+    {
+        using var repo = new GitTestRepo();
+
+        var (exitCode, _, _) = await ToolRunner.RunAsync(
+            "semver", repo.RepoPath, "--folder", Path.GetFullPath(repo.RepoPath));
+
+        Assert.NotEqual(0, exitCode);
+    }
+
+    [Fact]
+    public async Task InvalidOutputFormat_Fails()
+    {
+        using var repo = new GitTestRepo();
+
+        var (exitCode, stdout, stderr) = await ToolRunner.RunAsync(
+            "semver", repo.RepoPath, "--output", "yaml");
+
+        Assert.NotEqual(0, exitCode);
+        Assert.Empty(stdout);
+        Assert.Contains("Failed to convert", stderr);
+    }
+
+    [Fact]
+    public async Task NotAGitRepo_Fails()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"ReleaseTools_NoGit_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            var (exitCode, _, _) = await ToolRunner.RunAsync("semver", tempDir);
+
+            Assert.NotEqual(0, exitCode);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
     }
 }
-
-#region Calculator Classes for Tests
-
-public record CommitInfo(
-    string Hash,
-    string ShortHash,
-    string Message,
-    string Type,
-    string? Scope,
-    bool Breaking,
-    DateTimeOffset Date
-);
-
-public enum VersionIncrement
-{
-    None,
-    Patch,
-    Minor,
-    Major
-}
-
-public class CommitAnalyzer
-{
-    private static readonly System.Text.RegularExpressions.Regex ConventionalCommitRegex = new(
-        @"^(?<type>\w+)(?:\((?<scope>\w+)\))?(?<breaking>!):\s*(?<description>.+)$",
-        System.Text.RegularExpressions.RegexOptions.Compiled);
-
-    private static readonly System.Text.RegularExpressions.Regex BreakingChangeFooterRegex = new(
-        @"BREAKING CHANGE:\s*(.+)",
-        System.Text.RegularExpressions.RegexOptions.Compiled | System.Text.RegularExpressions.RegexOptions.Multiline);
-
-    private static readonly HashSet<string> FeatureTypes = new() { "feat" };
-    private static readonly HashSet<string> PatchTypes = new() { "fix", "perf", "revert" };
-
-    public CommitInfo ParseCommit(string hash, string shortHash, string message, DateTimeOffset date)
-    {
-        var match = ConventionalCommitRegex.Match(message);
-
-        if (!match.Success)
-        {
-            return new CommitInfo(hash, shortHash, message, "other", null, false, date);
-        }
-
-        var type = match.Groups["type"].Value.ToLowerInvariant();
-        var scope = match.Groups["scope"].Success ? match.Groups["scope"].Value : null;
-        var breaking = match.Groups["breaking"].Success;
-
-        if (!breaking && BreakingChangeFooterRegex.IsMatch(message))
-        {
-            breaking = true;
-        }
-
-        return new CommitInfo(hash, shortHash, message, type, scope, breaking, date);
-    }
-
-    public VersionIncrement DetermineIncrement(IEnumerable<CommitInfo> commits)
-    {
-        var commitList = commits.ToList();
-
-        if (commitList.Any(c => c.Breaking))
-            return VersionIncrement.Major;
-
-        if (commitList.Any(c => FeatureTypes.Contains(c.Type)))
-            return VersionIncrement.Minor;
-
-        if (commitList.Any(c => PatchTypes.Contains(c.Type)))
-            return VersionIncrement.Patch;
-
-        return VersionIncrement.None;
-    }
-
-    public string GetIncrementReason(IEnumerable<CommitInfo> commits, VersionIncrement increment)
-    {
-        var commitList = commits.ToList();
-
-        return increment switch
-        {
-            VersionIncrement.Major when commitList.Any(c => c.Breaking)
-                => "breaking changes detected",
-            VersionIncrement.Minor when commitList.Any(c => FeatureTypes.Contains(c.Type))
-                => "feat commits detected",
-            VersionIncrement.Patch when commitList.Any(c => PatchTypes.Contains(c.Type))
-                => "fix/perf commits detected",
-            _ => "no version-relevant commits"
-        };
-    }
-}
-
-public class SemVerCalculator
-{
-    private readonly GitService _gitService;
-    private readonly SchemaParser _schemaParser;
-    private readonly CommitAnalyzer _commitAnalyzer;
-
-    public SemVerCalculator(string? workingDirectory = null)
-    {
-        _gitService = new GitService { WorkingDirectory = workingDirectory };
-        _schemaParser = new SchemaParser();
-        _commitAnalyzer = new CommitAnalyzer();
-    }
-
-    public async Task<CalculationResult> CalculateNextVersionAsync(
-        string? prefix = null,
-        string? folder = null,
-        string? prereleaseIdentifier = null,
-        bool includeBuildMetadata = false)
-    {
-        const string schema = "{MAJOR}.{MINOR}.{PATCH}";
-
-        var headInfo = await _gitService.GetHeadInfoAsync();
-        var latestTag = await _gitService.GetLatestStableTagAsync(prefix);
-
-        if (latestTag == null)
-        {
-            return CalculateInitialVersion(schema, headInfo, prereleaseIdentifier, includeBuildMetadata);
-        }
-
-        var baseVersion = _gitService.ParseVersionFromTag(latestTag, prefix);
-        var commits = await _gitService.GetCommitsSinceTagAsync(latestTag, folder);
-        var commitInfos = commits.Select(c => _commitAnalyzer.ParseCommit(c.Hash, c.ShortHash, c.Message, c.Date)).ToList();
-        var numCommits = await _gitService.CountCommitsSinceTagAsync(latestTag, folder);
-
-        var increment = _commitAnalyzer.DetermineIncrement(commitInfos);
-
-        var newMajor = baseVersion.Major;
-        var newMinor = baseVersion.Minor;
-        var newPatch = baseVersion.Patch;
-
-        switch (increment)
-        {
-            case VersionIncrement.Major:
-                newMajor++;
-                newMinor = 0;
-                newPatch = 0;
-                break;
-            case VersionIncrement.Minor:
-                newMinor++;
-                newPatch = 0;
-                break;
-            case VersionIncrement.Patch:
-                newPatch++;
-                break;
-        }
-
-        var newVersion = new VersionInfo(newMajor, newMinor, newPatch, null, null);
-        var versionString = _schemaParser.ApplyVersion(schema, newVersion, headInfo.Date, numCommits, headInfo.ShortHash, headInfo.Hash);
-
-        var metadataService = new MetadataService();
-        var prerelease = metadataService.CalculatePrerelease(prereleaseIdentifier, numCommits);
-        var buildMetadata = includeBuildMetadata ? headInfo.ShortHash : null;
-        var fullVersion = metadataService.FormatFullVersion(versionString, prerelease, buildMetadata);
-
-        return new CalculationResult(
-            Version: versionString,
-            FullVersion: fullVersion,
-            BaseTag: latestTag,
-            BaseVersion: baseVersion,
-            CommitsSinceTag: numCommits,
-            IncrementReason: _commitAnalyzer.GetIncrementReason(commitInfos, increment),
-            Schema: schema,
-            Prerelease: prerelease,
-            BuildMetadata: buildMetadata
-        );
-    }
-
-    private CalculationResult CalculateInitialVersion(
-        string schema,
-        (string Hash, string ShortHash, DateTimeOffset Date) headInfo,
-        string? prereleaseIdentifier,
-        bool includeBuildMetadata)
-    {
-        var versionInfo = new VersionInfo(0, 1, 0, null, null);
-        var versionString = _schemaParser.ApplyVersion(schema, versionInfo, headInfo.Date, 0, headInfo.ShortHash, headInfo.Hash);
-
-        var metadataService = new MetadataService();
-        var prerelease = metadataService.CalculatePrerelease(prereleaseIdentifier, 0);
-        var buildMetadata = includeBuildMetadata ? headInfo.ShortHash : null;
-        var fullVersion = metadataService.FormatFullVersion(versionString, prerelease, buildMetadata);
-
-        return new CalculationResult(
-            Version: versionString,
-            FullVersion: fullVersion,
-            BaseTag: null,
-            BaseVersion: null,
-            CommitsSinceTag: 0,
-            IncrementReason: "initial version",
-            Schema: schema,
-            Prerelease: prerelease,
-            BuildMetadata: buildMetadata
-        );
-    }
-}
-
-#endregion

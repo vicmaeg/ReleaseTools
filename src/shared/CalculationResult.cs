@@ -1,12 +1,11 @@
 namespace ReleaseTools.Shared;
 
-public record CalculationResult(
+public sealed record CalculationResult(
     string Version,
     string FullVersion,
     string? BaseTag,
-    VersionInfo? BaseVersion,
-    int CommitsSinceTag,
-    string? IncrementReason,
+    int CommitCount,
+    string IncrementReason,
     string Schema,
     string? Prerelease,
     string? BuildMetadata
