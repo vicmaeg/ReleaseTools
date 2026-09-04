@@ -4,11 +4,12 @@
 #:property Nullable=enable
 #:property ImplicitUsings=enable
 #:property PublishAot=false
+#:property ManagePackageVersionsCentrally=true
 #:property PackageId=ReleaseTools.CalVer
 #:property ToolCommandName=calver
 #:property Description=Calculate calendar versions from Git commit dates.
-#:package CliWrap@3.10.0
-#:package Spectre.Console.Cli@0.53.0
+#:package CliWrap
+#:package Spectre.Console.Cli
 #:include shared/GitService.cs
 #:include shared/SchemaParser.cs
 #:include shared/MetadataService.cs
@@ -16,9 +17,9 @@
 #:include shared/CalculationResult.cs
 #:include shared/DateGranularity.cs
 #:include shared/OutputFormat.cs
+#:include shared/OutputWriter.cs
 
 using System.ComponentModel;
-using System.Text.Json;
 using System.Text.RegularExpressions;
 using ReleaseTools.Shared;
 using Spectre.Console;
@@ -32,8 +33,8 @@ app.Configure(config =>
         Out = new AnsiConsoleOutput(Console.Error)
     }));
     config.AddExample([]);
-    config.AddExample(["-f", "YY.0M0D.PATCH"]);
-    config.AddExample(["-f", "YYYY.0M", "-p", "rc"]);
+    config.AddExample(["--format", "YY.0M0D.PATCH"]);
+    config.AddExample(["--format", "YYYY.0M", "-p", "rc"]);
     config.AddExample(["-b"]);
 });
 
@@ -43,12 +44,12 @@ public sealed class NextCommand : AsyncCommand<NextCommand.Settings>
 {
     public sealed class Settings : CommandSettings
     {
-        [CommandOption("-f|--format <FORMAT>")]
+        [CommandOption("--format <FORMAT>")]
         [Description("CalVer format using tokens: YYYY, YY, 0Y, MM, 0M, WW, 0W, DD, 0D, PATCH")]
         [DefaultValue("YYYY.0M.PATCH")]
         public string Format { get; init; } = "YYYY.0M.PATCH";
 
-        [CommandOption("--folder <PATH>")]
+        [CommandOption("-f|--folder <PATH>")]
         [Description("Repository-relative folder whose commits determine the version")]
         public string? Folder { get; init; }
 
@@ -95,25 +96,7 @@ public sealed class NextCommand : AsyncCommand<NextCommand.Settings>
                 settings.BuildMetadata,
                 cancellationToken);
 
-            if (settings.Output == OutputFormat.Json)
-            {
-                var json = JsonSerializer.Serialize(new
-                {
-                    result.Version,
-                    result.FullVersion,
-                    Format = settings.Format,
-                    result.CommitCount,
-                    result.IncrementReason,
-                    result.Schema,
-                    result.Prerelease,
-                    result.BuildMetadata
-                }, new JsonSerializerOptions { WriteIndented = true });
-                Console.Write(json);
-            }
-            else
-            {
-                Console.Write(result.FullVersion);
-            }
+            OutputWriter.Write(result, settings.Output);
             return 0;
         }
         catch (Exception ex)
@@ -297,31 +280,16 @@ file static class CalVerFormatValidator
 
     public static DateGranularity GetGranularity(string format)
     {
-        try
-        {
-            var tokens = ParseTokens(format);
-            if (tokens.Any(t => DayTokens.Contains(t))) return DateGranularity.Day;
-            if (tokens.Any(t => WeekTokens.Contains(t))) return DateGranularity.Week;
-            if (tokens.Any(t => MonthTokens.Contains(t))) return DateGranularity.Month;
-            return DateGranularity.Year;
-        }
-        catch
-        {
-            return DateGranularity.Month;
-        }
+        var tokens = ParseTokens(format);
+        if (tokens.Any(t => DayTokens.Contains(t))) return DateGranularity.Day;
+        if (tokens.Any(t => WeekTokens.Contains(t))) return DateGranularity.Week;
+        if (tokens.Any(t => MonthTokens.Contains(t))) return DateGranularity.Month;
+        return DateGranularity.Year;
     }
 
     public static bool ContainsPatch(string format)
     {
-        try
-        {
-            var tokens = ParseTokens(format);
-            return tokens.Contains("PATCH");
-        }
-        catch
-        {
-            return false;
-        }
+        return ParseTokens(format).Contains("PATCH");
     }
 }
 

@@ -64,7 +64,7 @@ public class CalVerTests
             .WithCommit("feat: today", Feb24)
             .Build();
 
-        var (_, stdout, _) = await ToolRunner.RunAsync("calver", repo.RepoPath, "-f", "YYYY.0M.0D.PATCH");
+        var (_, stdout, _) = await ToolRunner.RunAsync("calver", repo.RepoPath, "--format", "YYYY.0M.0D.PATCH");
 
         Assert.Equal("2025.02.24.1", stdout);
     }
@@ -76,7 +76,7 @@ public class CalVerTests
             .WithCommit("feat: initial", Feb23)
             .Build();
 
-        var (_, stdout, _) = await ToolRunner.RunAsync("calver", repo.RepoPath, "-f", "YY.0M0D.PATCH");
+        var (_, stdout, _) = await ToolRunner.RunAsync("calver", repo.RepoPath, "--format", "YY.0M0D.PATCH");
 
         Assert.Equal("25.0223.1", stdout);
     }
@@ -88,7 +88,7 @@ public class CalVerTests
             .WithCommit("feat: initial", Feb23)
             .Build();
 
-        var (_, stdout, _) = await ToolRunner.RunAsync("calver", repo.RepoPath, "-f", "YYYY.MM.DD.PATCH");
+        var (_, stdout, _) = await ToolRunner.RunAsync("calver", repo.RepoPath, "--format", "YYYY.MM.DD.PATCH");
 
         Assert.Equal("2025.2.23.1", stdout);
     }
@@ -100,7 +100,7 @@ public class CalVerTests
             .WithCommit("feat: initial", Feb23)
             .Build();
 
-        var (_, stdout, _) = await ToolRunner.RunAsync("calver", repo.RepoPath, "-f", "0Y.0M.PATCH");
+        var (_, stdout, _) = await ToolRunner.RunAsync("calver", repo.RepoPath, "--format", "0Y.0M.PATCH");
 
         Assert.Equal("25.02.1", stdout);
     }
@@ -112,7 +112,7 @@ public class CalVerTests
             .WithCommit("feat: initial", Feb23)
             .Build();
 
-        var (_, stdout, _) = await ToolRunner.RunAsync("calver", repo.RepoPath, "-f", "YYYY.0W.PATCH");
+        var (_, stdout, _) = await ToolRunner.RunAsync("calver", repo.RepoPath, "--format", "YYYY.0W.PATCH");
 
         var expectedWeek = System.Globalization.ISOWeek.GetWeekOfYear(Feb23.UtcDateTime);
         Assert.Equal($"2025.{expectedWeek:D2}.1", stdout);
@@ -125,7 +125,7 @@ public class CalVerTests
             .WithCommit("feat: initial", Feb23)
             .Build();
 
-        var (_, stdout, _) = await ToolRunner.RunAsync("calver", repo.RepoPath, "-f", "YYYY.0M");
+        var (_, stdout, _) = await ToolRunner.RunAsync("calver", repo.RepoPath, "--format", "YYYY.0M");
 
         Assert.Equal("2025.02", stdout);
     }
@@ -193,11 +193,10 @@ public class CalVerTests
 
         Assert.Equal(0, exitCode);
         using var json = JsonDocument.Parse(stdout);
-        Assert.Equal("2025.02.1", json.RootElement.GetProperty("Version").GetString());
-        Assert.Equal("2025.02.1", json.RootElement.GetProperty("FullVersion").GetString());
-        Assert.Equal("YYYY.0M.PATCH", json.RootElement.GetProperty("Format").GetString());
-        Assert.Equal("{YYYY}.{0M}.{PATCH}", json.RootElement.GetProperty("Schema").GetString());
-        Assert.Equal(1, json.RootElement.GetProperty("CommitCount").GetInt32());
+        Assert.Equal("2025.02.1", json.RootElement.GetProperty("version").GetString());
+        Assert.Equal("2025.02.1", json.RootElement.GetProperty("fullVersion").GetString());
+        Assert.Equal("{YYYY}.{0M}.{PATCH}", json.RootElement.GetProperty("schema").GetString());
+        Assert.Equal(1, json.RootElement.GetProperty("commitCount").GetInt32());
     }
 
     [Fact]
@@ -315,7 +314,7 @@ public class CalVerTests
     {
         using var repo = new GitTestRepoBuilder().Build();
 
-        var (exitCode, _, _) = await ToolRunner.RunAsync("calver", repo.RepoPath, "-f", "YYYY.XX.PATCH");
+        var (exitCode, _, _) = await ToolRunner.RunAsync("calver", repo.RepoPath, "--format", "YYYY.XX.PATCH");
 
         Assert.NotEqual(0, exitCode);
     }
@@ -325,7 +324,7 @@ public class CalVerTests
     {
         using var repo = new GitTestRepoBuilder().Build();
 
-        var (exitCode, _, _) = await ToolRunner.RunAsync("calver", repo.RepoPath, "-f", "0M.PATCH");
+        var (exitCode, _, _) = await ToolRunner.RunAsync("calver", repo.RepoPath, "--format", "0M.PATCH");
 
         Assert.NotEqual(0, exitCode);
     }
@@ -335,7 +334,7 @@ public class CalVerTests
     {
         using var repo = new GitTestRepoBuilder().Build();
 
-        var (exitCode, _, _) = await ToolRunner.RunAsync("calver", repo.RepoPath, "-f", "YYYY.0M.0W.PATCH");
+        var (exitCode, _, _) = await ToolRunner.RunAsync("calver", repo.RepoPath, "--format", "YYYY.0M.0W.PATCH");
 
         Assert.NotEqual(0, exitCode);
     }
@@ -345,7 +344,7 @@ public class CalVerTests
     {
         using var repo = new GitTestRepoBuilder().Build();
 
-        var (exitCode, _, _) = await ToolRunner.RunAsync("calver", repo.RepoPath, "-f", "YYYY.0D.PATCH");
+        var (exitCode, _, _) = await ToolRunner.RunAsync("calver", repo.RepoPath, "--format", "YYYY.0D.PATCH");
 
         Assert.NotEqual(0, exitCode);
     }
@@ -355,7 +354,7 @@ public class CalVerTests
     {
         using var repo = new GitTestRepoBuilder().Build();
 
-        var (exitCode, _, _) = await ToolRunner.RunAsync("calver", repo.RepoPath, "-f", "0M.YYYY.PATCH");
+        var (exitCode, _, _) = await ToolRunner.RunAsync("calver", repo.RepoPath, "--format", "0M.YYYY.PATCH");
 
         Assert.NotEqual(0, exitCode);
     }

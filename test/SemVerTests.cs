@@ -131,8 +131,8 @@ public class SemVerTests
 
         Assert.Equal(0, exitCode);
         using var json = JsonDocument.Parse(stdout);
-        Assert.Equal("1.0.0", json.RootElement.GetProperty("BaseTag").GetString());
-        Assert.Equal("1.0.0", json.RootElement.GetProperty("Version").GetString());
+        Assert.Equal("1.0.0", json.RootElement.GetProperty("baseTag").GetString());
+        Assert.Equal("1.0.0", json.RootElement.GetProperty("version").GetString());
     }
 
     [Fact]
@@ -144,7 +144,7 @@ public class SemVerTests
             .WithCommit("feat: new api feature")
             .Build();
 
-        var (_, stdout, _) = await ToolRunner.RunAsync("semver", repo.RepoPath, "-p", "api-");
+        var (_, stdout, _) = await ToolRunner.RunAsync("semver", repo.RepoPath, "--prefix", "api-");
 
         Assert.Equal("1.1.0", stdout);
     }
@@ -227,12 +227,12 @@ public class SemVerTests
 
         Assert.Equal(0, exitCode);
         using var json = JsonDocument.Parse(stdout);
-        Assert.Equal("1.1.0", json.RootElement.GetProperty("Version").GetString());
-        Assert.Equal("1.1.0", json.RootElement.GetProperty("FullVersion").GetString());
-        Assert.Equal("1.0.0", json.RootElement.GetProperty("BaseTag").GetString());
-        Assert.Equal(1, json.RootElement.GetProperty("CommitCount").GetInt32());
-        Assert.Equal("feat commits detected", json.RootElement.GetProperty("IncrementReason").GetString());
-        Assert.Equal("{MAJOR}.{MINOR}.{PATCH}", json.RootElement.GetProperty("Schema").GetString());
+        Assert.Equal("1.1.0", json.RootElement.GetProperty("version").GetString());
+        Assert.Equal("1.1.0", json.RootElement.GetProperty("fullVersion").GetString());
+        Assert.Equal("1.0.0", json.RootElement.GetProperty("baseTag").GetString());
+        Assert.Equal(1, json.RootElement.GetProperty("commitCount").GetInt32());
+        Assert.Equal("feat commits detected", json.RootElement.GetProperty("incrementReason").GetString());
+        Assert.Equal("{MAJOR}.{MINOR}.{PATCH}", json.RootElement.GetProperty("schema").GetString());
     }
 
     [Theory]
@@ -334,7 +334,7 @@ public class SemVerTests
         var (_, stdout, _) = await ToolRunner.RunAsync("semver", repo.RepoPath, "--output", "json");
 
         using var json = JsonDocument.Parse(stdout);
-        Assert.Equal("1.2.3", json.RootElement.GetProperty("BaseTag").GetString());
+        Assert.Equal("1.2.3", json.RootElement.GetProperty("baseTag").GetString());
     }
 
     [Fact]
@@ -382,7 +382,7 @@ public class SemVerTests
     }
 
     [Fact]
-    public async Task NoRelevantChange_OmitsRequestedPrerelease()
+    public async Task NoRelevantChange_PrereleaseIsStillApplied()
     {
         using var repo = new GitTestRepoBuilder()
             .WithTag("1.0.0")
@@ -390,9 +390,9 @@ public class SemVerTests
             .Build();
 
         var (_, stdout, _) = await ToolRunner.RunAsync(
-            "semver", repo.RepoPath, "--prerelease", "alpha");
+            "semver", repo.RepoPath, "-p", "alpha");
 
-        Assert.Equal("1.0.0", stdout);
+        Assert.Equal("1.0.0-alpha.1", stdout);
     }
 
     [Fact]

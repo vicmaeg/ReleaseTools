@@ -136,12 +136,10 @@ public class ScalVerTests
 
         Assert.Equal(0, exitCode);
         using var json = JsonDocument.Parse(stdout);
-        Assert.Equal("2.202502.1", json.RootElement.GetProperty("Version").GetString());
-        Assert.Equal("2.202502.1", json.RootElement.GetProperty("FullVersion").GetString());
-        Assert.Equal(2, json.RootElement.GetProperty("Major").GetInt32());
-        Assert.Equal("YYYYMM", json.RootElement.GetProperty("DateFormat").GetString());
-        Assert.Equal("{MAJOR}.{YYYY}{0M}.{PATCH}", json.RootElement.GetProperty("Schema").GetString());
-        Assert.Equal(1, json.RootElement.GetProperty("CommitCount").GetInt32());
+        Assert.Equal("2.202502.1", json.RootElement.GetProperty("version").GetString());
+        Assert.Equal("2.202502.1", json.RootElement.GetProperty("fullVersion").GetString());
+        Assert.Equal("{MAJOR}.{YYYY}{0M}.{PATCH}", json.RootElement.GetProperty("schema").GetString());
+        Assert.Equal(1, json.RootElement.GetProperty("commitCount").GetInt32());
     }
 
     [Fact]

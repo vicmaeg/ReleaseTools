@@ -4,11 +4,12 @@
 #:property Nullable=enable
 #:property ImplicitUsings=enable
 #:property PublishAot=false
+#:property ManagePackageVersionsCentrally=true
 #:property PackageId=ReleaseTools.ScalVer
 #:property ToolCommandName=scalver
 #:property Description=Calculate scalable calendar versions from Git commit dates.
-#:package CliWrap@3.10.0
-#:package Spectre.Console.Cli@0.53.0
+#:package CliWrap
+#:package Spectre.Console.Cli
 #:include shared/GitService.cs
 #:include shared/SchemaParser.cs
 #:include shared/MetadataService.cs
@@ -16,9 +17,9 @@
 #:include shared/CalculationResult.cs
 #:include shared/DateGranularity.cs
 #:include shared/OutputFormat.cs
+#:include shared/OutputWriter.cs
 
 using System.ComponentModel;
-using System.Text.Json;
 using System.Text.RegularExpressions;
 using ReleaseTools.Shared;
 using Spectre.Console;
@@ -33,7 +34,7 @@ app.Configure(config =>
     }));
     config.AddExample(["-m", "1"]);
     config.AddExample(["-m", "2", "-d", "YYYYMMDD"]);
-    config.AddExample(["-m", "1", "--prerelease", "alpha", "-b"]);
+    config.AddExample(["-m", "1", "-p", "alpha", "-b"]);
 });
 
 return await app.RunAsync(args);
@@ -51,7 +52,7 @@ public sealed class NextCommand : AsyncCommand<NextCommand.Settings>
         [DefaultValue("YYYYMM")]
         public string DateFormat { get; init; } = "YYYYMM";
 
-        [CommandOption("--folder <PATH>")]
+        [CommandOption("-f|--folder <PATH>")]
         [Description("Repository-relative folder whose commits determine the version")]
         public string? Folder { get; init; }
 
@@ -105,26 +106,7 @@ public sealed class NextCommand : AsyncCommand<NextCommand.Settings>
                 settings.BuildMetadata,
                 cancellationToken);
 
-            if (settings.Output == OutputFormat.Json)
-            {
-                var json = JsonSerializer.Serialize(new
-                {
-                    result.Version,
-                    result.FullVersion,
-                    DateFormat = settings.DateFormat,
-                    Major = settings.Major,
-                    result.CommitCount,
-                    result.IncrementReason,
-                    result.Schema,
-                    result.Prerelease,
-                    result.BuildMetadata
-                }, new JsonSerializerOptions { WriteIndented = true });
-                Console.Write(json);
-            }
-            else
-            {
-                Console.Write(result.FullVersion);
-            }
+            OutputWriter.Write(result, settings.Output);
             return 0;
         }
         catch (Exception ex)

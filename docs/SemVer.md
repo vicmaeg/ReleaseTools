@@ -20,9 +20,9 @@ dotnet run --file src/semver.cs -- [options]
 
 | Option | Description |
 |--------|-------------|
-| `-p, --prefix <PREFIX>` | Literal tag prefix for monorepo scenarios (e.g. `api-`) |
+| `--prefix <PREFIX>` | Literal tag prefix for monorepo scenarios (e.g. `api-`) |
 | `-f, --folder <PATH>` | Use a tracked repository-relative folder's history |
-| `--prerelease <ID>` | Append identifier and matching commit count (e.g. `alpha.3`) |
+| `-p, --prerelease <ID>` | Append identifier and matching commit count (e.g. `alpha.3`) |
 | `-b, --buildmetadata` | Append short commit SHA as build metadata |
 | `-o, --output <text\|json>` | Output format (default: `text`) |
 
@@ -52,7 +52,7 @@ Full commit messages are analyzed. Both `BREAKING CHANGE:` and `BREAKING-CHANGE:
 - **Base version**: the highest reachable stable SemVer wins, not the alphabetically first or nearest tag.
 - **Increment is applied once**: the highest increment among all commits since the tag wins (e.g. three `feat` commits → one minor bump).
 - **Folder filter**: the folder must be a literal tracked path. Its latest commit supplies the effective HEAD date/SHA, and commits outside it are ignored.
-- **Prerelease counter**: `--prerelease alpha` produces `alpha.N`, where `N` is the filtered commit count since the stable base (or the full matching history before the first tag). No version-relevant change after a stable tag produces no prerelease.
+- **Prerelease counter**: `-p alpha` produces `alpha.N`, where `N` is the filtered commit count since the stable base (or the full matching history before the first tag). The prerelease is appended whenever requested, even without version-relevant commits (e.g. docs-only changes after `1.0.0` → `1.0.0-alpha.1`).
 
 ## Examples
 
@@ -70,14 +70,14 @@ dotnet run --file src/semver.cs
 # 2.0.0
 
 # Prerelease and build metadata
-dotnet run --file src/semver.cs -- --prerelease beta -b
+dotnet run --file src/semver.cs -- -p beta -b
 # 1.1.0-beta.1+a1b2c3d
 
 # Monorepo: tags like api-1.0.0, web-2.3.0
-dotnet run --file src/semver.cs -- -p api-
+dotnet run --file src/semver.cs -- --prefix api-
 # 1.1.0 (based on api-1.0.0, ignoring web-* tags)
 
 # JSON output for pipelines
 dotnet run --file src/semver.cs -- -o json
-# { "Version": "1.1.0", "FullVersion": "1.1.0", "BaseTag": "1.0.0", ... }
+# { "version": "1.1.0", "fullVersion": "1.1.0", "baseTag": "1.0.0", ... }
 ```

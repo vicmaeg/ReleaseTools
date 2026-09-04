@@ -4,19 +4,20 @@
 #:property Nullable=enable
 #:property ImplicitUsings=enable
 #:property PublishAot=false
+#:property ManagePackageVersionsCentrally=true
 #:property PackageId=ReleaseTools.SemVer
 #:property ToolCommandName=semver
 #:property Description=Calculate semantic versions from Git history and Conventional Commits.
-#:package CliWrap@3.10.0
-#:package Spectre.Console.Cli@0.53.0
+#:package CliWrap
+#:package Spectre.Console.Cli
 #:include shared/GitService.cs
 #:include shared/MetadataService.cs
 #:include shared/CalculationResult.cs
 #:include shared/DateGranularity.cs
 #:include shared/OutputFormat.cs
+#:include shared/OutputWriter.cs
 
 using System.ComponentModel;
-using System.Text.Json;
 using System.Text.RegularExpressions;
 using ReleaseTools.Shared;
 using Spectre.Console;
@@ -30,8 +31,8 @@ app.Configure(config =>
         Out = new AnsiConsoleOutput(Console.Error)
     }));
     config.AddExample([]);
-    config.AddExample(["-p", "api-", "-f", "apps/api"]);
-    config.AddExample(["--prerelease", "alpha", "-b"]);
+    config.AddExample(["--prefix", "api-", "-f", "apps/api"]);
+    config.AddExample(["-p", "alpha", "-b"]);
 });
 
 return await app.RunAsync(args);
@@ -40,7 +41,7 @@ public sealed class NextCommand : AsyncCommand<NextCommand.Settings>
 {
     public sealed class Settings : CommandSettings
     {
-        [CommandOption("-p|--prefix <PREFIX>")]
+        [CommandOption("--prefix <PREFIX>")]
         [Description("Literal tag prefix for monorepo scenarios")]
         public string? Prefix { get; init; }
 
@@ -48,7 +49,7 @@ public sealed class NextCommand : AsyncCommand<NextCommand.Settings>
         [Description("Repository-relative folder whose commits determine the version")]
         public string? Folder { get; init; }
 
-        [CommandOption("--prerelease <ID>")]
+        [CommandOption("-p|--prerelease <ID>")]
         [Description("Prerelease label; the matching commit count is appended automatically")]
         public string? Prerelease { get; init; }
 
@@ -89,24 +90,7 @@ public sealed class NextCommand : AsyncCommand<NextCommand.Settings>
                 settings.BuildMetadata,
                 cancellationToken);
 
-            if (settings.Output == OutputFormat.Json)
-            {
-                Console.Write(JsonSerializer.Serialize(new
-                {
-                    result.Version,
-                    result.FullVersion,
-                    result.BaseTag,
-                    result.CommitCount,
-                    result.IncrementReason,
-                    result.Schema,
-                    result.Prerelease,
-                    result.BuildMetadata
-                }, new JsonSerializerOptions { WriteIndented = true }));
-            }
-            else
-            {
-                Console.Write(result.FullVersion);
-            }
+            OutputWriter.Write(result, settings.Output);
 
             return 0;
         }
@@ -268,7 +252,7 @@ file sealed class SemVerCalculator
             cancellationToken);
         var (increment, reason) = CommitAnalyzer.Analyze(messages);
         var next = Increment(baseTag.Value.Version, increment);
-        var prereleaseValue = prereleaseIdentifier is not null && increment != VersionIncrement.None
+        var prereleaseValue = prereleaseIdentifier is not null
             ? $"{prereleaseIdentifier}.{messages.Count}"
             : null;
 
