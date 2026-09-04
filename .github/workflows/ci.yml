@@ -36,23 +36,35 @@ jobs:
       - name: Pack probe versions
         run: |
           dotnet pack src/semver.cs --configuration Release --output artifacts -p:PackageVersion=1.2.3
-          dotnet pack src/calver.cs --configuration Release --output artifacts -p:PackageVersion=2026.831.4
+          # zero-padded month on purpose: NuGet normalizes 2026.09.4 -> 2026.9.4
+          dotnet pack src/calver.cs --configuration Release --output artifacts -p:PackageVersion=2026.09.4
           dotnet pack src/scalver.cs --configuration Release --output artifacts -p:PackageVersion=1.20260831.4
 
       - name: Verify package metadata
         run: |
           unzip -p artifacts/ReleaseTools.SemVer.1.2.3.nupkg '*.nuspec' | grep -q '<authors>vicmaeg</authors>'
-          unzip -p artifacts/ReleaseTools.CalVer.2026.831.4.nupkg '*.nuspec' | grep -q '<license type="expression">MIT</license>'
+          unzip -p artifacts/ReleaseTools.CalVer.2026.9.4.nupkg '*.nuspec' | grep -q '<license type="expression">MIT</license>'
           unzip -l artifacts/ReleaseTools.ScalVer.1.20260831.4.nupkg | grep -q 'README.md'
 
       - name: Install and invoke packed tools
         run: |
           dotnet tool install --tool-path .tools ReleaseTools.SemVer --version 1.2.3 --add-source artifacts
-          dotnet tool install --tool-path .tools ReleaseTools.CalVer --version 2026.831.4 --add-source artifacts
+          dotnet tool install --tool-path .tools ReleaseTools.CalVer --version 2026.9.4 --add-source artifacts
           dotnet tool install --tool-path .tools ReleaseTools.ScalVer --version 1.20260831.4 --add-source artifacts
           .tools/semver --help
           .tools/calver --help
           .tools/scalver --help
+
+      - name: Smoke test installed tools
+        run: |
+          git init -b main smoke-test
+          cd smoke-test
+          git config user.email "ci@test.com"
+          git config user.name "CI"
+          git commit --allow-empty -m "feat: initial commit"
+          test "$(../.tools/semver)" = "0.1.0"
+          test -n "$(../.tools/calver)"
+          test -n "$(../.tools/scalver --major 1)"
 
       - name: Upload packages
         uses: actions/upload-artifact@v4

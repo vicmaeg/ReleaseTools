@@ -43,7 +43,7 @@ jobs:
 
           SCALVER_MAJOR=$(jq -er '.scalverMajor | select(type == "number" and . >= 0 and floor == .)' release.json)
           SEMVER_VERSION=$(dotnet run --file src/semver.cs -- --prefix semver-v)
-          CALVER_VERSION=$(dotnet run --file src/calver.cs -- --format YYYY.MMDD.PATCH)
+          CALVER_VERSION=$(dotnet run --file src/calver.cs)
           SCALVER_VERSION=$(dotnet run --file src/scalver.cs -- --major "$SCALVER_MAJOR" --date-format YYYYMMDD)
 
           publish_tool() {
@@ -67,7 +67,11 @@ jobs:
               --output artifacts \
               -p:PackageVersion="$version"
 
-            dotnet nuget push "artifacts/$package_id.$version.nupkg" \
+            # NuGet normalizes versions (e.g. 2026.09.4 -> 2026.9.4), so locate the produced file
+            local nupkg
+            nupkg=$(find artifacts -maxdepth 1 -name "$package_id.*.nupkg" -print -quit)
+
+            dotnet nuget push "$nupkg" \
               --api-key "$NUGET_API_KEY" \
               --source https://api.nuget.org/v3/index.json \
               --skip-duplicate
