@@ -30,7 +30,7 @@ dotnet run --file src/scalver.cs -- -m <MAJOR> [options]
 |--------|-------------|
 | `-m, --major <N>` | Major version (**required**); bump it yourself for breaking changes |
 | `-d, --date-format <FMT>` | `YYYY`, `YYYYMM` or `YYYYMMDD` (default: `YYYYMM`) |
-| `--folder <PATH>` | Use a tracked repository-relative folder's history and effective HEAD |
+| `-f, --folder <PATH>` | Use a tracked repository-relative folder's history and effective HEAD |
 | `-p, --prerelease <ID>` | Append prerelease identifier (e.g. `alpha`, `rc`) |
 | `-b, --buildmetadata` | Append short commit SHA as build metadata |
 | `-o, --output <text\|json>` | Output format (default: `text`) |

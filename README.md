@@ -42,13 +42,13 @@ Fixed schema `{MAJOR}.{MINOR}.{PATCH}`. Analyzes [Conventional Commits](https://
 
 ```bash
 dotnet run --file src/semver.cs            # 1.2.0
-dotnet run --file src/semver.cs -- -p api- -f apps/api # isolated monorepo app
+dotnet run --file src/semver.cs -- --prefix api- -f apps/api # isolated monorepo app
 ```
 
 Options:
-- `-p, --prefix <PREFIX>` — literal tag prefix for monorepo scenarios
+- `--prefix <PREFIX>` — literal tag prefix for monorepo scenarios
 - `-f, --folder <PATH>` — use only a tracked repository-relative folder's history
-- `--prerelease <ID>` — append the identifier and matching commit count (`1.2.0-alpha.3`)
+- `-p, --prerelease <ID>` — append the identifier and matching commit count (`1.2.0-alpha.3`)
 - `-b, --buildmetadata` — append short commit SHA (`1.2.0+a1b2c3d`)
 - `-o, --output <text|json>` — output format (default: text)
 
@@ -57,15 +57,15 @@ Options:
 Configurable format built from fixed tokens. The date comes from the effective HEAD commit in UTC; `PATCH` counts commits within that date window (e.g. 3 commits this month → `.3`).
 
 ```bash
-dotnet run --file src/calver.cs                       # 2025.02.3 (default YYYY.0M.PATCH)
-dotnet run --file src/calver.cs -- -f YY.0M0D.PATCH   # 25.0223.1
+dotnet run --file src/calver.cs                            # 2025.02.3 (default YYYY.0M.PATCH)
+dotnet run --file src/calver.cs -- --format YY.0M0D.PATCH  # 25.0223.1
 ```
 
 Tokens: `YYYY`, `YY`, `0Y` (year) · `MM`, `0M` (month) · `WW`, `0W` (week) · `DD`, `0D` (day) · `PATCH` (commit count). Rules: a year token is required; month and week are mutually exclusive; day requires month; tokens must be ordered Year → Month/Week → Day → PATCH.
 
 Options:
-- `-f, --format <FORMAT>` — token format (default: `YYYY.0M.PATCH`)
-- `--folder <PATH>` — use only a tracked repository-relative folder's history
+- `--format <FORMAT>` — token format (default: `YYYY.0M.PATCH`)
+- `-f, --folder <PATH>` — use only a tracked repository-relative folder's history
 - `-p, --prerelease <ID>` — append prerelease identifier
 - `-b, --buildmetadata` — append short commit SHA
 - `-o, --output <text|json>` — output format (default: text)
@@ -82,7 +82,7 @@ dotnet run --file src/scalver.cs -- -m 2 -d YYYYMMDD     # 2.20250223.1
 Options:
 - `-m, --major <N>` — major version (required; bump it yourself for breaking changes)
 - `-d, --date-format <FMT>` — `YYYY`, `YYYYMM` or `YYYYMMDD` (default: `YYYYMM`)
-- `--folder <PATH>` — use only a tracked repository-relative folder's history
+- `-f, --folder <PATH>` — use only a tracked repository-relative folder's history
 - `-p, --prerelease <ID>` — append prerelease identifier
 - `-b, --buildmetadata` — append short commit SHA
 - `-o, --output <text|json>` — output format (default: text)
@@ -101,6 +101,8 @@ src/
     VersionInfo.cs
     CalculationResult.cs
     DateGranularity.cs
+    OutputFormat.cs
+    OutputWriter.cs
 test/           # black-box CLI tests (run the real tool binaries)
 .github/workflows/ # active CI and independent package publishing workflows
 docs/           # per-scheme details
@@ -115,8 +117,10 @@ The repository publishes each tool with its own versioning scheme and package-sp
 | Package | Version | Tag |
 |---------|---------|-----|
 | `ReleaseTools.SemVer` | `1.2.3` | `semver-v1.2.3` |
-| `ReleaseTools.CalVer` | `2026.831.4` (`YYYY.MMDD.X`) | `calver-v2026.831.4` |
+| `ReleaseTools.CalVer` | `2026.9.4` (`YYYY.0M.PATCH`) | `calver-v2026.09.4` |
 | `ReleaseTools.ScalVer` | `1.20260831.4` | `scalver-v1.20260831.4` |
+
+CalVer tags keep the zero-padded month from the tool output; NuGet normalizes the package version (`2026.09.4` → `2026.9.4`).
 
 The checked-in `release.json` holds the manually controlled ScalVer major. On `main`, GitHub Actions publishes each missing package version and then creates its corresponding tag. Existing tag streams are skipped independently, so retries are safe.
 

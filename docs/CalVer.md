@@ -52,8 +52,8 @@ dotnet run --file src/calver.cs -- [options]
 
 | Option | Description |
 |--------|-------------|
-| `-f, --format <FORMAT>` | Token format (default: `YYYY.0M.PATCH`) |
-| `--folder <PATH>` | Use a tracked repository-relative folder's history and effective HEAD |
+| `--format <FORMAT>` | Token format (default: `YYYY.0M.PATCH`) |
+| `-f, --folder <PATH>` | Use a tracked repository-relative folder's history and effective HEAD |
 | `-p, --prerelease <ID>` | Append prerelease identifier (e.g. `alpha`, `rc`) |
 | `-b, --buildmetadata` | Append short commit SHA as build metadata |
 | `-o, --output <text\|json>` | Output format (default: `text`) |
@@ -66,15 +66,15 @@ dotnet run --file src/calver.cs
 # 2025.02.3
 
 # Ubuntu-style
-dotnet run --file src/calver.cs -- -f YY.0M.PATCH
+dotnet run --file src/calver.cs -- --format YY.0M.PATCH
 # 25.02.3
 
 # Daily
-dotnet run --file src/calver.cs -- -f YYYY.0M.0D.PATCH
+dotnet run --file src/calver.cs -- --format YYYY.0M.0D.PATCH
 # 2025.02.23.1
 
 # Pure date, no patch
-dotnet run --file src/calver.cs -- -f YYYY.0M
+dotnet run --file src/calver.cs -- --format YYYY.0M
 # 2025.02
 
 # Prerelease + build metadata
