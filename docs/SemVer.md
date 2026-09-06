@@ -2,6 +2,8 @@
 
 ## Overview
 
+`ReleaseTools.SemVer` is a .NET tool that calculates the next semantic version from Git history and Conventional Commits. It prints the version to stdout, making it suitable for local scripts and release pipelines.
+
 Semantic Versioning uses a three-part version number: `MAJOR.MINOR.PATCH`.
 
 1. **MAJOR** — incompatible API changes
@@ -10,10 +12,31 @@ Semantic Versioning uses a three-part version number: `MAJOR.MINOR.PATCH`.
 
 The `semver` tool implements this with a fixed schema `{MAJOR}.{MINOR}.{PATCH}`, deriving the increment from [Conventional Commits](https://www.conventionalcommits.org/) since the latest stable tag.
 
+## Installation
+
+```bash
+dotnet tool install --global ReleaseTools.SemVer
+```
+
+The installed command is `semver`. To upgrade an existing installation:
+
+```bash
+dotnet tool update --global ReleaseTools.SemVer
+```
+
+## Requirements
+
+- The .NET 10 SDK
+- Git available on `PATH`
+- A Git repository with at least one commit
+- Full Git history and tags; shallow clones can produce incomplete version calculations
+
+In GitHub Actions, configure `actions/checkout` with `fetch-depth: 0` so tags and history are available.
+
 ## Usage
 
 ```bash
-dotnet run --file src/semver.cs -- [options]
+semver [options]
 ```
 
 ### Options
@@ -43,12 +66,12 @@ feat!: remove deprecated API
 fix(api)!: change response format
 ```
 
-Full commit messages are analyzed. Both `BREAKING CHANGE:` and `BREAKING-CHANGE:` footers increment MAJOR.
+For commits with a valid Conventional Commit subject, the full message is analyzed. Both `BREAKING CHANGE:` and `BREAKING-CHANGE:` footers increment MAJOR.
 
 ## Behavior Details
 
 - **No tags** → initial version `0.1.0`.
-- **Tag selection**: only strict SemVer tags whose name is `{prefix}{version}` are considered. `--prefix api` does not match `api-1.0.0` or `apix-1.0.0`; use `--prefix api-`. Prerelease and unreachable tags are skipped; build metadata (`+...`) remains stable.
+- **Tag selection**: only strict SemVer tags whose name is `{prefix}{version}` are considered. `--prefix api` does not match `api-1.0.0` or `apix-1.0.0`; use `--prefix api-`. Prerelease and unreachable tags are skipped. Stable tags with build metadata are eligible, but their metadata is not carried into the calculated version.
 - **Base version**: the highest reachable stable SemVer wins, not the alphabetically first or nearest tag.
 - **Increment is applied once**: the highest increment among all commits since the tag wins (e.g. three `feat` commits → one minor bump).
 - **Folder filter**: the folder must be a literal tracked path. Its latest commit supplies the effective HEAD date/SHA, and commits outside it are ignored.
@@ -58,26 +81,26 @@ Full commit messages are analyzed. Both `BREAKING CHANGE:` and `BREAKING-CHANGE:
 
 ```bash
 # Tag 1.0.0, new commits: feat: add user authentication
-dotnet run --file src/semver.cs
+semver
 # 1.1.0
 
 # Tag 1.0.0, new commits: fix: resolve login issue
-dotnet run --file src/semver.cs
+semver
 # 1.0.1
 
 # Tag 1.0.0, new commits: feat!: redesign API
-dotnet run --file src/semver.cs
+semver
 # 2.0.0
 
 # Prerelease and build metadata
-dotnet run --file src/semver.cs -- -p beta -b
+semver -p beta -b
 # 1.1.0-beta.1+a1b2c3d
 
 # Monorepo: tags like api-1.0.0, web-2.3.0
-dotnet run --file src/semver.cs -- --prefix api-
+semver --prefix api-
 # 1.1.0 (based on api-1.0.0, ignoring web-* tags)
 
 # JSON output for pipelines
-dotnet run --file src/semver.cs -- -o json
+semver -o json
 # { "version": "1.1.0", "fullVersion": "1.1.0", "baseTag": "1.0.0", ... }
 ```

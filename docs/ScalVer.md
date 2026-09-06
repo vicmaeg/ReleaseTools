@@ -2,6 +2,8 @@
 
 ## Overview
 
+`ReleaseTools.ScalVer` is a .NET tool that combines a manually controlled major version with a date and commit count. It prints the version to stdout, making it suitable for local scripts and release pipelines.
+
 ScalVer combines Semantic and Calendar Versioning:
 
 ```
@@ -18,10 +20,31 @@ Every ScalVer version is syntactically valid SemVer, so package managers and ver
 1.2025.0 < 1.202502.0 < 1.20250223.0 < 2.2025.0
 ```
 
+## Installation
+
+```bash
+dotnet tool install --global ReleaseTools.ScalVer
+```
+
+The installed command is `scalver`. To upgrade an existing installation:
+
+```bash
+dotnet tool update --global ReleaseTools.ScalVer
+```
+
+## Requirements
+
+- The .NET 10 SDK
+- Git available on `PATH`
+- A Git repository with at least one commit
+- Full Git history; shallow clones can undercount commits in the selected date window
+
+In GitHub Actions, configure `actions/checkout` with `fetch-depth: 0` so the full commit history is available.
+
 ## Usage
 
 ```bash
-dotnet run --file src/scalver.cs -- -m <MAJOR> [options]
+scalver -m <MAJOR> [options]
 ```
 
 ### Options
@@ -53,19 +76,19 @@ There is no commit-message analysis: when you make a breaking change, bump `-m` 
 
 ```bash
 # Monthly cadence, 3 commits this month
-dotnet run --file src/scalver.cs -- -m 1
+scalver -m 1
 # 1.202502.3
 
 # Daily cadence
-dotnet run --file src/scalver.cs -- -m 1 -d YYYYMMDD
+scalver -m 1 -d YYYYMMDD
 # 1.20250223.1
 
 # Breaking change: you decide
-dotnet run --file src/scalver.cs -- -m 2
+scalver -m 2
 # 2.202502.3
 
 # Prerelease + build metadata
-dotnet run --file src/scalver.cs -- -m 1 -p rc -b
+scalver -m 1 -p rc -b
 # 1.202502.3-rc+a1b2c3d
 ```
 
