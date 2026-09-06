@@ -8,12 +8,14 @@
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageTags>versioning;release;git;dotnet-tool</PackageTags>
     <PackAsTool>true</PackAsTool>
+    <PackageDocumentationFile Condition="'$(MSBuildProjectName)' == 'semver.cs'">SemVer.md</PackageDocumentationFile>
+    <PackageDocumentationFile Condition="'$(MSBuildProjectName)' == 'calver.cs'">CalVer.md</PackageDocumentationFile>
+    <PackageDocumentationFile Condition="'$(MSBuildProjectName)' == 'scalver.cs'">ScalVer.md</PackageDocumentationFile>
   </PropertyGroup>
 
-  <ItemGroup>
-    <None Include="$(MSBuildThisFileDirectory)../README.md"
+  <ItemGroup Condition="'$(PackageDocumentationFile)' != ''">
+    <None Include="$(MSBuildThisFileDirectory)../docs/$(PackageDocumentationFile)"
           Pack="true"
-          PackagePath="/"
-          Link="README.md" />
+          PackagePath="$(PackageReadmeFile)" />
   </ItemGroup>
 </Project>

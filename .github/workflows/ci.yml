@@ -43,7 +43,10 @@ jobs:
         run: |
           unzip -p artifacts/ReleaseTools.SemVer.1.2.3.nupkg '*.nuspec' | grep -q '<authors>vicmaeg</authors>'
           unzip -p artifacts/ReleaseTools.CalVer.2026.9.4.nupkg '*.nuspec' | grep -q '<license type="expression">MIT</license>'
-          unzip -l artifacts/ReleaseTools.ScalVer.1.20260831.4.nupkg | grep -q 'README.md'
+          unzip -p artifacts/ReleaseTools.SemVer.1.2.3.nupkg '*.nuspec' | grep -q '<readme>README.md</readme>'
+          unzip -p artifacts/ReleaseTools.CalVer.2026.9.4.nupkg README.md | cmp -s docs/CalVer.md -
+          unzip -p artifacts/ReleaseTools.ScalVer.1.20260831.4.nupkg README.md | cmp -s docs/ScalVer.md -
+          unzip -p artifacts/ReleaseTools.SemVer.1.2.3.nupkg README.md | cmp -s docs/SemVer.md -
 
       - name: Install and invoke packed tools
         run: |
@@ -64,9 +67,3 @@ jobs:
           test "$(../.tools/semver)" = "0.1.0"
           test -n "$(../.tools/calver)"
           test -n "$(../.tools/scalver --major 1)"
-
-      - name: Upload packages
-        uses: actions/upload-artifact@v4
-        with:
-          name: nuget-packages
-          path: artifacts/*.nupkg
