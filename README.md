@@ -125,7 +125,16 @@ The repository publishes each tool with its own versioning scheme and package-sp
 | `ReleaseTools.CalVer` | `2026.9.4` (`YYYY.MM.PATCH`) | `calver-v2026.9.4` |
 | `ReleaseTools.ScalVer` | `1.20260831.4` | `scalver-v1.20260831.4` |
 
-The checked-in `release.json` holds the manually controlled ScalVer major. On `main`, GitHub Actions publishes each missing package version and then creates its corresponding tag. Existing tag streams are skipped independently, so retries are safe.
+The checked-in `release.json` holds the manually controlled ScalVer major. Releases are started manually from **Actions > Create release tag > Run workflow** by choosing one tool. The workflow calculates that tool's next version from the latest `main` commit and creates its package-specific tag.
+
+The tag starts the publishing workflow, which verifies the calculated version and publishes only the corresponding NuGet package. Ordinary commits and tags with other prefixes do not publish packages. Publishing retries are safe because NuGet duplicates are skipped.
+
+The workflows require these repository secrets:
+
+- `RELEASE_TOKEN` is a fine-grained personal access token with read and write access to repository contents. The tag workflow uses it instead of `GITHUB_TOKEN` so that the tag push can trigger the publishing workflow.
+- `NUGET_USER` is the NuGet.org profile name (not an email address) whose Trusted Publishing policy authorizes `.github/workflows/release.yml`.
+
+NuGet publication uses Trusted Publishing: the release job requests a GitHub OIDC token, exchanges it for a short-lived NuGet API key immediately before publishing, and does not store a long-lived NuGet API key in GitHub. Configure the policy on NuGet.org for repository owner `vicmaeg`, repository `ReleaseTools`, workflow file `release.yml`, and no GitHub environment.
 
 ## Documentation
 
