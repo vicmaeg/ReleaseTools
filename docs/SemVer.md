@@ -20,7 +20,7 @@ dotnet run --file src/semver.cs -- [options]
 
 | Option | Description |
 |--------|-------------|
-| `--prefix <PREFIX>` | Literal tag prefix for monorepo scenarios (e.g. `api-`) |
+| `--prefix <PREFIX>` | Literal tag prefix; the remainder must be a complete SemVer (e.g. `api-` for `api-1.0.0`) |
 | `-f, --folder <PATH>` | Use a tracked repository-relative folder's history |
 | `-p, --prerelease <ID>` | Append identifier and matching commit count (e.g. `alpha.3`) |
 | `-b, --buildmetadata` | Append short commit SHA as build metadata |
@@ -48,7 +48,7 @@ Full commit messages are analyzed. Both `BREAKING CHANGE:` and `BREAKING-CHANGE:
 ## Behavior Details
 
 - **No tags** → initial version `0.1.0`.
-- **Tag selection**: only strict SemVer tags with the exact requested prefix are considered. Prerelease and unreachable tags are skipped; build metadata (`+...`) remains stable.
+- **Tag selection**: only strict SemVer tags whose name is `{prefix}{version}` are considered. `--prefix api` does not match `api-1.0.0` or `apix-1.0.0`; use `--prefix api-`. Prerelease and unreachable tags are skipped; build metadata (`+...`) remains stable.
 - **Base version**: the highest reachable stable SemVer wins, not the alphabetically first or nearest tag.
 - **Increment is applied once**: the highest increment among all commits since the tag wins (e.g. three `feat` commits → one minor bump).
 - **Folder filter**: the folder must be a literal tracked path. Its latest commit supplies the effective HEAD date/SHA, and commits outside it are ignored.

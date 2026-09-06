@@ -1,6 +1,4 @@
 <Project>
-  <!-- Central versions for the file-based tools in src/ (they enable CPM individually via #:property).
-       The test project manages its own floating versions. -->
   <ItemGroup>
     <PackageVersion Include="CliWrap" Version="3.10.0" />
     <PackageVersion Include="Spectre.Console.Cli" Version="0.53.0" />

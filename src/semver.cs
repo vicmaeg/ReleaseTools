@@ -94,7 +94,7 @@ public sealed class NextCommand : AsyncCommand<NextCommand.Settings>
 
             return 0;
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             Console.Error.WriteLine($"Error: {ex.Message}");
             return 1;
@@ -273,10 +273,10 @@ file sealed class SemVerCalculator
 
         foreach (var tag in tags)
         {
-            if (prefix is not null && !tag.StartsWith(prefix, StringComparison.Ordinal))
+            if (!string.IsNullOrEmpty(prefix) && !tag.StartsWith(prefix, StringComparison.Ordinal))
                 continue;
 
-            var versionText = prefix is null ? tag : tag[prefix.Length..];
+            var versionText = string.IsNullOrEmpty(prefix) ? tag : tag[prefix.Length..];
             if (!SemanticVersion.TryParse(versionText, out var parsed) || parsed!.Prerelease is not null)
                 continue;
 
@@ -315,7 +315,7 @@ file sealed class SemVerCalculator
         string? prerelease,
         string? buildMetadata)
     {
-        var versionString = $"{version.Major}.{version.Minor}.{version.Patch}";
+        var versionString = FormattableString.Invariant($"{version.Major}.{version.Minor}.{version.Patch}");
         return new CalculationResult(
             versionString,
             MetadataService.FormatFullVersion(versionString, prerelease, buildMetadata),

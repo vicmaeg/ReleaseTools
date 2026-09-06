@@ -36,8 +36,7 @@ jobs:
       - name: Pack probe versions
         run: |
           dotnet pack src/semver.cs --configuration Release --output artifacts -p:PackageVersion=1.2.3
-          # zero-padded month on purpose: NuGet normalizes 2026.09.4 -> 2026.9.4
-          dotnet pack src/calver.cs --configuration Release --output artifacts -p:PackageVersion=2026.09.4
+          dotnet pack src/calver.cs --configuration Release --output artifacts -p:PackageVersion=2026.9.4
           dotnet pack src/scalver.cs --configuration Release --output artifacts -p:PackageVersion=1.20260831.4
 
       - name: Verify package metadata

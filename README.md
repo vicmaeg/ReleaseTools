@@ -7,12 +7,13 @@ Three tools, one per versioning scheme:
 | Tool | Schema | Driven by |
 |------|--------|-----------|
 | `semver` | `{MAJOR}.{MINOR}.{PATCH}` (fixed) | Conventional Commits since last tag |
-| `calver` | Configurable date tokens (e.g. `YYYY.0M.PATCH`) | Effective HEAD commit date + commits in date window |
+| `calver` | Configurable date tokens (default `YYYY.MM.PATCH`) | Effective HEAD commit date + commits in date window |
 | `scalver` | `{MAJOR}.{DATE}.{PATCH}` (DATE: `YYYY`, `YYYYMM` or `YYYYMMDD`) | Manual MAJOR + effective HEAD commit date |
 
 ## Requirements
 
 - .NET SDK **10.0.300 or later** (the tools are [file-based apps](https://learn.microsoft.com/en-us/dotnet/core/sdk/file-based-apps) using `#:include`)
+- A Git repository with **full history and tags**. Shallow clones (GitHub Actions default `fetch-depth: 1`) will miss tags and history; use `fetch-depth: 0`.
 
 ## Installation
 
@@ -28,7 +29,7 @@ The CLI commands are `semver`, `calver` and `scalver`.
 
 ## Usage
 
-Run a tool from inside a git repository; it prints the version:
+Run a tool from inside a git repository; it prints the version followed by a newline:
 
 ```bash
 dotnet run --file src/semver.cs -- [options]
@@ -46,7 +47,7 @@ dotnet run --file src/semver.cs -- --prefix api- -f apps/api # isolated monorepo
 ```
 
 Options:
-- `--prefix <PREFIX>` — literal tag prefix for monorepo scenarios
+- `--prefix <PREFIX>` — literal tag prefix; the remainder must be a complete SemVer (`api-1.0.0` needs `--prefix api-`, not `api`)
 - `-f, --folder <PATH>` — use only a tracked repository-relative folder's history
 - `-p, --prerelease <ID>` — append the identifier and matching commit count (`1.2.0-alpha.3`)
 - `-b, --buildmetadata` — append short commit SHA (`1.2.0+a1b2c3d`)
@@ -57,14 +58,16 @@ Options:
 Configurable format built from fixed tokens. The date comes from the effective HEAD commit in UTC; `PATCH` counts commits within that date window (e.g. 3 commits this month → `.3`).
 
 ```bash
-dotnet run --file src/calver.cs                            # 2025.02.3 (default YYYY.0M.PATCH)
+dotnet run --file src/calver.cs                            # 2025.2.3 (default YYYY.MM.PATCH)
 dotnet run --file src/calver.cs -- --format YY.0M0D.PATCH  # 25.0223.1
 ```
 
 Tokens: `YYYY`, `YY`, `0Y` (year) · `MM`, `0M` (month) · `WW`, `0W` (week) · `DD`, `0D` (day) · `PATCH` (commit count). Rules: a year token is required; month and week are mutually exclusive; day requires month; tokens must be ordered Year → Month/Week → Day → PATCH.
 
+The default `YYYY.MM.PATCH` is unpadded so the CLI version, git tag, and NuGet package version are the same string.
+
 Options:
-- `--format <FORMAT>` — token format (default: `YYYY.0M.PATCH`)
+- `--format <FORMAT>` — token format (default: `YYYY.MM.PATCH`)
 - `-f, --folder <PATH>` — use only a tracked repository-relative folder's history
 - `-p, --prerelease <ID>` — append prerelease identifier
 - `-b, --buildmetadata` — append short commit SHA
@@ -86,6 +89,8 @@ Options:
 - `-p, --prerelease <ID>` — append prerelease identifier
 - `-b, --buildmetadata` — append short commit SHA
 - `-o, --output <text|json>` — output format (default: text)
+
+SemVer `--prerelease` appends `.N` (commit count since the base) because the core version may not change every commit. CalVer and ScalVer append the identifier only; `PATCH` already unique-ifies the version.
 
 ## Project layout
 
@@ -117,10 +122,8 @@ The repository publishes each tool with its own versioning scheme and package-sp
 | Package | Version | Tag |
 |---------|---------|-----|
 | `ReleaseTools.SemVer` | `1.2.3` | `semver-v1.2.3` |
-| `ReleaseTools.CalVer` | `2026.9.4` (`YYYY.0M.PATCH`) | `calver-v2026.09.4` |
+| `ReleaseTools.CalVer` | `2026.9.4` (`YYYY.MM.PATCH`) | `calver-v2026.9.4` |
 | `ReleaseTools.ScalVer` | `1.20260831.4` | `scalver-v1.20260831.4` |
-
-CalVer tags keep the zero-padded month from the tool output; NuGet normalizes the package version (`2026.09.4` → `2026.9.4`).
 
 The checked-in `release.json` holds the manually controlled ScalVer major. On `main`, GitHub Actions publishes each missing package version and then creates its corresponding tag. Existing tag streams are skipped independently, so retries are safe.
 

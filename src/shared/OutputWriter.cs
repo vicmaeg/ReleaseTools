@@ -12,6 +12,6 @@ public static class OutputWriter
         if (format == OutputFormat.Json)
             Console.WriteLine(JsonSerializer.Serialize(result, JsonOptions));
         else
-            Console.Write(result.FullVersion);
+            Console.WriteLine(result.FullVersion);
     }
 }

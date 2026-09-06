@@ -67,9 +67,11 @@ jobs:
               --output artifacts \
               -p:PackageVersion="$version"
 
-            # NuGet normalizes versions (e.g. 2026.09.4 -> 2026.9.4), so locate the produced file
-            local nupkg
-            nupkg=$(find artifacts -maxdepth 1 -name "$package_id.*.nupkg" -print -quit)
+            local nupkg="artifacts/$package_id.$version.nupkg"
+            if [[ ! -f "$nupkg" ]]; then
+              echo "Expected package not found: $nupkg" >&2
+              return 1
+            fi
 
             dotnet nuget push "$nupkg" \
               --api-key "$NUGET_API_KEY" \

@@ -233,6 +233,9 @@ public class SemVerTests
         Assert.Equal(1, json.RootElement.GetProperty("commitCount").GetInt32());
         Assert.Equal("feat commits detected", json.RootElement.GetProperty("incrementReason").GetString());
         Assert.Equal("{MAJOR}.{MINOR}.{PATCH}", json.RootElement.GetProperty("schema").GetString());
+        Assert.False(json.RootElement.TryGetProperty("format", out _));
+        Assert.False(json.RootElement.TryGetProperty("major", out _));
+        Assert.False(json.RootElement.TryGetProperty("dateFormat", out _));
     }
 
     [Theory]
@@ -349,6 +352,22 @@ public class SemVerTests
             "semver", repo.RepoPath, "--prefix", "api.v-");
 
         Assert.Equal("1.1.0", stdout);
+    }
+
+    [Fact]
+    public async Task Prefix_DoesNotMatchLongerName()
+    {
+        using var repo = new GitTestRepoBuilder()
+            .WithTag("apix-1.0.0")
+            .WithTag("api-1.0.0")
+            .WithCommit("feat: add endpoint")
+            .Build();
+
+        var (_, apiPrefix, _) = await ToolRunner.RunAsync("semver", repo.RepoPath, "--prefix", "api");
+        var (_, apiDash, _) = await ToolRunner.RunAsync("semver", repo.RepoPath, "--prefix", "api-");
+
+        Assert.Equal("0.1.0", apiPrefix);
+        Assert.Equal("1.1.0", apiDash);
     }
 
     [Fact]

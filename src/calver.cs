@@ -46,8 +46,8 @@ public sealed class NextCommand : AsyncCommand<NextCommand.Settings>
     {
         [CommandOption("--format <FORMAT>")]
         [Description("CalVer format using tokens: YYYY, YY, 0Y, MM, 0M, WW, 0W, DD, 0D, PATCH")]
-        [DefaultValue("YYYY.0M.PATCH")]
-        public string Format { get; init; } = "YYYY.0M.PATCH";
+        [DefaultValue("YYYY.MM.PATCH")]
+        public string Format { get; init; } = "YYYY.MM.PATCH";
 
         [CommandOption("-f|--folder <PATH>")]
         [Description("Repository-relative folder whose commits determine the version")]
@@ -99,7 +99,7 @@ public sealed class NextCommand : AsyncCommand<NextCommand.Settings>
             OutputWriter.Write(result, settings.Output);
             return 0;
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             Console.Error.WriteLine($"Error: {ex.Message}");
             return 1;
@@ -340,7 +340,8 @@ file sealed class CalVerCalculator
             IncrementReason: incrementReason,
             Schema: schema,
             Prerelease: prerelease,
-            BuildMetadata: buildMetadata
+            BuildMetadata: buildMetadata,
+            Format: format
         );
     }
 }

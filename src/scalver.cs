@@ -109,7 +109,7 @@ public sealed class NextCommand : AsyncCommand<NextCommand.Settings>
             OutputWriter.Write(result, settings.Output);
             return 0;
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             Console.Error.WriteLine($"Error: {ex.Message}");
             return 1;
@@ -162,7 +162,9 @@ file sealed class ScalVerCalculator
             IncrementReason: $"{patch} commit(s) in {granularity.ToString().ToLowerInvariant()} window",
             Schema: schema,
             Prerelease: prerelease,
-            BuildMetadata: buildMetadata
+            BuildMetadata: buildMetadata,
+            Major: major,
+            DateFormat: dateFormat
         );
     }
 

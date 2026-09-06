@@ -30,7 +30,7 @@ public sealed class GitService
             throw new ArgumentException("Folder must be a normalized path inside the repository", nameof(folder));
 
         var result = await RunGitAsync(
-            ["ls-files", "--error-unmatch", "--", ToLiteralPathspec(normalized)],
+            ["ls-tree", "-r", "--name-only", "HEAD", "--", ToLiteralPathspec(normalized)],
             cancellationToken,
             allowFailure: true);
 

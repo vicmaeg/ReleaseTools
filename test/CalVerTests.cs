@@ -25,7 +25,7 @@ public class CalVerTests
         var (exitCode, stdout, _) = await ToolRunner.RunAsync("calver", repo.RepoPath);
 
         Assert.Equal(0, exitCode);
-        Assert.Equal("2025.02.1", stdout);
+        Assert.Equal("2025.2.1", stdout);
     }
 
     [Fact]
@@ -39,7 +39,7 @@ public class CalVerTests
 
         var (_, stdout, _) = await ToolRunner.RunAsync("calver", repo.RepoPath);
 
-        Assert.Equal("2025.02.3", stdout);
+        Assert.Equal("2025.2.3", stdout);
     }
 
     [Fact]
@@ -53,7 +53,7 @@ public class CalVerTests
 
         var (_, stdout, _) = await ToolRunner.RunAsync("calver", repo.RepoPath);
 
-        Assert.Equal("2025.02.1", stdout);
+        Assert.Equal("2025.2.1", stdout);
     }
 
     [Fact]
@@ -142,8 +142,8 @@ public class CalVerTests
         var (_, apiStdout, _) = await ToolRunner.RunAsync("calver", repo.RepoPath, "--folder", "api");
         var (_, allStdout, _) = await ToolRunner.RunAsync("calver", repo.RepoPath);
 
-        Assert.Equal("2025.02.1", apiStdout);
-        Assert.Equal("2025.02.2", allStdout);
+        Assert.Equal("2025.2.1", apiStdout);
+        Assert.Equal("2025.2.2", allStdout);
     }
 
     [Fact]
@@ -155,7 +155,7 @@ public class CalVerTests
 
         var (_, stdout, _) = await ToolRunner.RunAsync("calver", repo.RepoPath, "-p", "alpha");
 
-        Assert.Equal("2025.02.1-alpha", stdout);
+        Assert.Equal("2025.2.1-alpha", stdout);
     }
 
     [Fact]
@@ -167,7 +167,7 @@ public class CalVerTests
 
         var (_, stdout, _) = await ToolRunner.RunAsync("calver", repo.RepoPath, "-b");
 
-        Assert.Matches(@"^2025\.02\.1\+[a-f0-9]{7}$", stdout);
+        Assert.Matches(@"^2025\.2\.1\+[a-f0-9]{7}$", stdout);
     }
 
     [Fact]
@@ -179,7 +179,7 @@ public class CalVerTests
 
         var (_, stdout, _) = await ToolRunner.RunAsync("calver", repo.RepoPath, "-p", "rc", "-b");
 
-        Assert.Matches(@"^2025\.02\.1-rc\+[a-f0-9]{7}$", stdout);
+        Assert.Matches(@"^2025\.2\.1-rc\+[a-f0-9]{7}$", stdout);
     }
 
     [Fact]
@@ -193,10 +193,13 @@ public class CalVerTests
 
         Assert.Equal(0, exitCode);
         using var json = JsonDocument.Parse(stdout);
-        Assert.Equal("2025.02.1", json.RootElement.GetProperty("version").GetString());
-        Assert.Equal("2025.02.1", json.RootElement.GetProperty("fullVersion").GetString());
-        Assert.Equal("{YYYY}.{0M}.{PATCH}", json.RootElement.GetProperty("schema").GetString());
+        Assert.Equal("2025.2.1", json.RootElement.GetProperty("version").GetString());
+        Assert.Equal("2025.2.1", json.RootElement.GetProperty("fullVersion").GetString());
+        Assert.Equal("YYYY.MM.PATCH", json.RootElement.GetProperty("format").GetString());
+        Assert.Equal("{YYYY}.{MM}.{PATCH}", json.RootElement.GetProperty("schema").GetString());
         Assert.Equal(1, json.RootElement.GetProperty("commitCount").GetInt32());
+        Assert.False(json.RootElement.TryGetProperty("major", out _));
+        Assert.False(json.RootElement.TryGetProperty("dateFormat", out _));
     }
 
     [Fact]
@@ -225,7 +228,7 @@ public class CalVerTests
         var (_, stdout, _) = await ToolRunner.RunAsync(
             "calver", repo.RepoPath, "--folder", "api", "--buildmetadata");
 
-        Assert.Equal($"2025.02.1+{apiSha}", stdout);
+        Assert.Equal($"2025.2.1+{apiSha}", stdout);
     }
 
     [Fact]
@@ -239,7 +242,7 @@ public class CalVerTests
             "calver", repo.RepoPath, "--folder", "apps/[api]");
 
         Assert.Equal(0, exitCode);
-        Assert.Equal("2025.02.1", stdout);
+        Assert.Equal("2025.2.1", stdout);
     }
 
     [Fact]
@@ -282,7 +285,7 @@ public class CalVerTests
 
         var (_, stdout, _) = await ToolRunner.RunAsync("calver", repo.RepoPath);
 
-        Assert.Equal("2025.03.1", stdout);
+        Assert.Equal("2025.3.1", stdout);
     }
 
     [Fact]

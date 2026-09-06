@@ -35,7 +35,8 @@ Tokens may be separated by `.` or concatenated (`YY.0M0D.PATCH` → `25.0223.1`)
 
 `PATCH` is the **number of commits within the current date window** — the finest date unit in the format:
 
-- `YYYY.0M.PATCH` → commits in the HEAD commit's month
+- `YYYY.MM.PATCH` (default) → commits in the HEAD commit's month
+- `YYYY.0M.PATCH` → commits in the HEAD commit's month (zero-padded)
 - `YYYY.0M.0D.PATCH` → commits on the HEAD commit's day
 - `YYYY.0W.PATCH` → commits in the HEAD commit's ISO week (weeks start Monday)
 - `YYYY.PATCH` → commits in the HEAD commit's year
@@ -52,7 +53,7 @@ dotnet run --file src/calver.cs -- [options]
 
 | Option | Description |
 |--------|-------------|
-| `--format <FORMAT>` | Token format (default: `YYYY.0M.PATCH`) |
+| `--format <FORMAT>` | Token format (default: `YYYY.MM.PATCH`) |
 | `-f, --folder <PATH>` | Use a tracked repository-relative folder's history and effective HEAD |
 | `-p, --prerelease <ID>` | Append prerelease identifier (e.g. `alpha`, `rc`) |
 | `-b, --buildmetadata` | Append short commit SHA as build metadata |
@@ -63,7 +64,7 @@ dotnet run --file src/calver.cs -- [options]
 ```bash
 # Monthly cadence, 3 commits this month
 dotnet run --file src/calver.cs
-# 2025.02.3
+# 2025.2.3
 
 # Ubuntu-style
 dotnet run --file src/calver.cs -- --format YY.0M.PATCH
@@ -79,7 +80,7 @@ dotnet run --file src/calver.cs -- --format YYYY.0M
 
 # Prerelease + build metadata
 dotnet run --file src/calver.cs -- -p rc -b
-# 2025.02.3-rc+a1b2c3d
+# 2025.2.3-rc+a1b2c3d
 ```
 
 ## When to Use CalVer
