@@ -6,6 +6,8 @@
 #:property PublishAot=false
 #:property ManagePackageVersionsCentrally=true
 #:property PackageId=ReleaseTools.ScalVer
+#:property AssemblyVersion=1.0.0.0
+#:property FileVersion=1.0.0.0
 #:property ToolCommandName=scalver
 #:property Description=Calculate scalable calendar versions from Git commit dates.
 #:package CliWrap
