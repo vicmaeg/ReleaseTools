@@ -6,6 +6,8 @@
 #:property PublishAot=false
 #:property ManagePackageVersionsCentrally=true
 #:property PackageId=ReleaseTools.CalVer
+#:property AssemblyVersion=1.0.0.0
+#:property FileVersion=1.0.0.0
 #:property ToolCommandName=calver
 #:property Description=Calculate calendar versions from Git commit dates.
 #:package CliWrap
