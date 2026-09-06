@@ -1,0 +1,120 @@
+name: Publish tagged package
+
+on:
+  push:
+    tags:
+      - "semver-v*"
+      - "calver-v*"
+      - "scalver-v*"
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Resolve and validate release
+        id: release
+        shell: bash
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+
+          case "$TAG" in
+            semver-v*)
+              tool=semver
+              package_id=ReleaseTools.SemVer
+              prefix=semver-v
+              expected_version=$(dotnet run --file src/semver.cs -- --prefix semver-v)
+              ;;
+            calver-v*)
+              tool=calver
+              package_id=ReleaseTools.CalVer
+              prefix=calver-v
+              expected_version=$(dotnet run --file src/calver.cs)
+              ;;
+            scalver-v*)
+              tool=scalver
+              package_id=ReleaseTools.ScalVer
+              prefix=scalver-v
+              major=$(jq -er '.scalverMajor | select(type == "number" and . >= 0 and floor == .)' release.json)
+              expected_version=$(dotnet run --file src/scalver.cs -- --major "$major" --date-format YYYYMMDD)
+              ;;
+            *)
+              echo "Unsupported release tag: $TAG" >&2
+              exit 1
+              ;;
+          esac
+
+          version="${TAG#"$prefix"}"
+          if [[ ! "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "Tag does not contain a stable three-part version: $TAG" >&2
+            exit 1
+          fi
+
+          if [[ "$version" != "$expected_version" ]]; then
+            echo "Tag version $version does not match the calculated version $expected_version at this commit" >&2
+            exit 1
+          fi
+
+          echo "tool=$tool" >> "$GITHUB_OUTPUT"
+          echo "package_id=$package_id" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "nupkg=artifacts/$package_id.$version.nupkg" >> "$GITHUB_OUTPUT"
+
+      - name: Pack selected tool
+        env:
+          TOOL: ${{ steps.release.outputs.tool }}
+          VERSION: ${{ steps.release.outputs.version }}
+          NUPKG: ${{ steps.release.outputs.nupkg }}
+        run: |
+          dotnet pack "src/$TOOL.cs" \
+            --configuration Release \
+            --output artifacts \
+            -p:PackageVersion="$VERSION"
+
+          if [[ ! -f "$NUPKG" ]]; then
+            echo "Expected package not found: $NUPKG" >&2
+            exit 1
+          fi
+
+      - name: Log in to NuGet with trusted publishing
+        id: nuget-login
+        uses: NuGet/login@v1
+        with:
+          user: ${{ secrets.NUGET_USER }}
+
+      - name: Publish package to NuGet
+        env:
+          NUGET_API_KEY: ${{ steps.nuget-login.outputs.NUGET_API_KEY }}
+          NUPKG: ${{ steps.release.outputs.nupkg }}
+        run: |
+          dotnet nuget push "$NUPKG" \
+            --api-key "$NUGET_API_KEY" \
+            --source https://api.nuget.org/v3/index.json \
+            --skip-duplicate
+
+      - name: Upload package
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.release.outputs.tool }}-${{ steps.release.outputs.version }}
+          path: ${{ steps.release.outputs.nupkg }}
+          if-no-files-found: error

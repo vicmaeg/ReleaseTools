@@ -1,6 +1,7 @@
 using System;
+using System.IO;
+using System.Text.Json;
 using System.Threading.Tasks;
-using ReleaseTools.Shared;
 using ReleaseTools.Tests.Infrastructure;
 using Xunit;
 
@@ -8,423 +9,389 @@ namespace ReleaseTools.Tests;
 
 public class CalVerTests
 {
-    [Fact]
-    public async Task NoTags_Returns_DateVersion()
-    {
-        var date = new DateTimeOffset(2025, 2, 23, 10, 0, 0, TimeSpan.Zero);
-        using var repo = new GitTestRepoBuilder()
-            .WithCommit("feat: initial", date)
-            .Build();
-
-        var calculator = new CalVerCalculator(repo.RepoPath);
-        var result = await calculator.CalculateNextVersionAsync("YYYY.0M.PATCH");
-
-        Assert.Equal("2025.02.0", result.Version);
-    }
+    private static readonly DateTimeOffset Feb15 = new(2025, 2, 15, 10, 0, 0, TimeSpan.Zero);
+    private static readonly DateTimeOffset Feb23 = new(2025, 2, 23, 10, 0, 0, TimeSpan.Zero);
+    private static readonly DateTimeOffset Feb24 = new(2025, 2, 24, 10, 0, 0, TimeSpan.Zero);
+    private static readonly DateTimeOffset Jan10 = new(2025, 1, 10, 10, 0, 0, TimeSpan.Zero);
+    private static readonly DateTimeOffset Jun10 = new(2025, 6, 10, 10, 0, 0, TimeSpan.Zero);
 
     [Fact]
-    public async Task NoTags_YearMonthDay_Returns_DateVersion()
+    public async Task SingleCommit_PatchIsCommitCountInWindow()
     {
-        var date = new DateTimeOffset(2025, 2, 23, 10, 0, 0, TimeSpan.Zero);
         using var repo = new GitTestRepoBuilder()
-            .WithCommit("feat: initial", date)
+            .WithCommit("feat: initial", Feb23)
             .Build();
 
-        var calculator = new CalVerCalculator(repo.RepoPath);
-        var result = await calculator.CalculateNextVersionAsync("YYYY.MM.DD.PATCH");
+        var (exitCode, stdout, _) = await ToolRunner.RunAsync("calver", repo.RepoPath);
 
-        Assert.Equal("2025.2.23.0", result.Version);
+        Assert.Equal(0, exitCode);
+        Assert.Equal("2025.2.1", stdout);
     }
 
     [Fact]
-    public async Task SameMonth_IncrementsPatch()
+    public async Task MultipleCommitsSameMonth_AllCounted()
     {
-        var date1 = new DateTimeOffset(2025, 2, 15, 10, 0, 0, TimeSpan.Zero);
-        var date2 = new DateTimeOffset(2025, 2, 23, 10, 0, 0, TimeSpan.Zero);
-
         using var repo = new GitTestRepoBuilder()
-            .WithCommit("initial", date1)
-            .WithTag("2025.02.0")
-            .WithCommit("feat: new feature", date2)
+            .WithCommit("feat: one", Feb15)
+            .WithCommit("feat: two", Feb23)
+            .WithCommit("fix: three", Feb24)
             .Build();
 
-        var calculator = new CalVerCalculator(repo.RepoPath);
-        var result = await calculator.CalculateNextVersionAsync("YYYY.0M.PATCH");
+        var (_, stdout, _) = await ToolRunner.RunAsync("calver", repo.RepoPath);
 
-        Assert.Equal("2025.02.1", result.Version);
+        Assert.Equal("2025.2.3", stdout);
     }
 
     [Fact]
-    public async Task DifferentMonth_ResetsPatch()
+    public async Task PreviousMonthCommits_NotCounted()
     {
-        var date1 = new DateTimeOffset(2025, 2, 15, 10, 0, 0, TimeSpan.Zero);
-        var date2 = new DateTimeOffset(2025, 3, 10, 10, 0, 0, TimeSpan.Zero);
-
         using var repo = new GitTestRepoBuilder()
-            .WithCommit("initial", date1)
-            .WithTag("2025.02.5")
-            .WithCommit("feat: new feature", date2)
+            .WithCommit("feat: old", Jan10)
+            .WithCommit("feat: older", Jan10)
+            .WithCommit("feat: new", Feb23)
             .Build();
 
-        var calculator = new CalVerCalculator(repo.RepoPath);
-        var result = await calculator.CalculateNextVersionAsync("YYYY.0M.PATCH");
+        var (_, stdout, _) = await ToolRunner.RunAsync("calver", repo.RepoPath);
 
-        Assert.Equal("2025.03.0", result.Version);
+        Assert.Equal("2025.2.1", stdout);
     }
 
     [Fact]
-    public async Task DailySchema_UsesDay()
+    public async Task DailyFormat_CountsCommitsOfHeadDay()
     {
-        var date = new DateTimeOffset(2025, 2, 23, 10, 0, 0, TimeSpan.Zero);
         using var repo = new GitTestRepoBuilder()
-            .WithCommit("feat: initial", date)
+            .WithCommit("feat: yesterday", Feb23)
+            .WithCommit("feat: today", Feb24)
             .Build();
 
-        var calculator = new CalVerCalculator(repo.RepoPath);
-        var result = await calculator.CalculateNextVersionAsync("YYYY.0M.0D.PATCH");
+        var (_, stdout, _) = await ToolRunner.RunAsync("calver", repo.RepoPath, "--format", "YYYY.0M.0D.PATCH");
 
-        Assert.Equal("2025.02.23.0", result.Version);
+        Assert.Equal("2025.02.24.1", stdout);
     }
 
     [Fact]
-    public async Task SameDay_IncrementsPatch()
+    public async Task ConcatenatedTokens_WithoutSeparators()
     {
-        var date = new DateTimeOffset(2025, 2, 23, 10, 0, 0, TimeSpan.Zero);
-
         using var repo = new GitTestRepoBuilder()
-            .WithCommit("initial", date)
-            .WithTag("2025.02.23.0")
-            .WithCommit("feat: new feature", date)
+            .WithCommit("feat: initial", Feb23)
             .Build();
 
-        var calculator = new CalVerCalculator(repo.RepoPath);
-        var result = await calculator.CalculateNextVersionAsync("YYYY.0M.0D.PATCH");
+        var (_, stdout, _) = await ToolRunner.RunAsync("calver", repo.RepoPath, "--format", "YY.0M0D.PATCH");
 
-        Assert.Equal("2025.02.23.1", result.Version);
+        Assert.Equal("25.0223.1", stdout);
     }
 
     [Fact]
-    public async Task DifferentDay_ResetsPatch()
+    public async Task UnpaddedTokens_RenderUnpadded()
     {
-        var date1 = new DateTimeOffset(2025, 2, 23, 10, 0, 0, TimeSpan.Zero);
-        var date2 = new DateTimeOffset(2025, 2, 25, 10, 0, 0, TimeSpan.Zero);
-
         using var repo = new GitTestRepoBuilder()
-            .WithCommit("initial", date1)
-            .WithTag("2025.02.23.5")
-            .WithCommit("feat: new feature", date2)
+            .WithCommit("feat: initial", Feb23)
             .Build();
 
-        var calculator = new CalVerCalculator(repo.RepoPath);
-        var result = await calculator.CalculateNextVersionAsync("YYYY.0M.0D.PATCH");
+        var (_, stdout, _) = await ToolRunner.RunAsync("calver", repo.RepoPath, "--format", "YYYY.MM.DD.PATCH");
 
-        Assert.Equal("2025.02.25.0", result.Version);
+        Assert.Equal("2025.2.23.1", stdout);
     }
 
     [Fact]
-    public async Task WithPrefix_Monorepo()
+    public async Task ShortYear_RendersTwoDigits()
     {
-        var date = new DateTimeOffset(2025, 2, 23, 10, 0, 0, TimeSpan.Zero);
         using var repo = new GitTestRepoBuilder()
-            .WithCommit("feat: initial", date)
+            .WithCommit("feat: initial", Feb23)
             .Build();
 
-        var calculator = new CalVerCalculator(repo.RepoPath);
-        var result = await calculator.CalculateNextVersionAsync("YYYY.0M.PATCH", prefix: "api-");
+        var (_, stdout, _) = await ToolRunner.RunAsync("calver", repo.RepoPath, "--format", "0Y.0M.PATCH");
 
-        Assert.Equal("2025.02.0", result.Version);
+        Assert.Equal("25.02.1", stdout);
     }
 
     [Fact]
-    public async Task ShortYear_Schema()
+    public async Task WeekFormat_RendersIsoWeek()
     {
-        var date = new DateTimeOffset(2025, 2, 23, 10, 0, 0, TimeSpan.Zero);
         using var repo = new GitTestRepoBuilder()
-            .WithCommit("feat: initial", date)
+            .WithCommit("feat: initial", Feb23)
             .Build();
 
-        var calculator = new CalVerCalculator(repo.RepoPath);
-        var result = await calculator.CalculateNextVersionAsync("0Y.0M.PATCH");
+        var (_, stdout, _) = await ToolRunner.RunAsync("calver", repo.RepoPath, "--format", "YYYY.0W.PATCH");
 
-        Assert.Equal("25.02.0", result.Version);
+        var expectedWeek = System.Globalization.ISOWeek.GetWeekOfYear(Feb23.UtcDateTime);
+        Assert.Equal($"2025.{expectedWeek:D2}.1", stdout);
     }
 
     [Fact]
-    public async Task Prerelease_CalVer()
+    public async Task NoPatchSegment_OmitsPatch()
     {
-        var date = new DateTimeOffset(2025, 2, 23, 10, 0, 0, TimeSpan.Zero);
         using var repo = new GitTestRepoBuilder()
-            .WithCommit("feat: initial", date)
-            .WithCommit("feat: another", date)
+            .WithCommit("feat: initial", Feb23)
             .Build();
 
-        var calculator = new CalVerCalculator(repo.RepoPath);
-        var result = await calculator.CalculateNextVersionAsync(
-            "YYYY.0M.PATCH",
-            prereleaseIdentifier: "alpha");
+        var (_, stdout, _) = await ToolRunner.RunAsync("calver", repo.RepoPath, "--format", "YYYY.0M");
 
-        Assert.Equal("2025.02.0", result.Version);
-        Assert.Equal("2025.02.0-alpha.2", result.FullVersion);
-        Assert.Equal("alpha.2", result.Prerelease);
+        Assert.Equal("2025.02", stdout);
     }
 
     [Fact]
-    public async Task BuildMetadata_CalVer()
+    public async Task FolderFilter_OnlyCountsFolderCommits()
     {
-        var date = new DateTimeOffset(2025, 2, 23, 10, 0, 0, TimeSpan.Zero);
-        using var repo = new GitTestRepoBuilder()
-            .WithCommit("feat: initial", date)
-            .Build();
+        using var repo = new GitTestRepo();
+        repo.AddFile("api/service.txt", "api change");
+        repo.Commit("feat: api", Feb23);
+        repo.AddFile("web/page.txt", "web change");
+        repo.Commit("feat: web", Feb23);
 
-        var calculator = new CalVerCalculator(repo.RepoPath);
-        var result = await calculator.CalculateNextVersionAsync(
-            "YYYY.0M.PATCH",
-            includeBuildMetadata: true);
+        var (_, apiStdout, _) = await ToolRunner.RunAsync("calver", repo.RepoPath, "--folder", "api");
+        var (_, allStdout, _) = await ToolRunner.RunAsync("calver", repo.RepoPath);
 
-        Assert.Equal("2025.02.0", result.Version);
-        Assert.NotNull(result.BuildMetadata);
-        Assert.Contains("+", result.FullVersion);
+        Assert.Equal("2025.2.1", apiStdout);
+        Assert.Equal("2025.2.2", allStdout);
     }
 
     [Fact]
-    public async Task PrereleaseAndBuildMetadata_CalVer()
+    public async Task Prerelease_AppendsIdentifier()
     {
-        var date = new DateTimeOffset(2025, 2, 23, 10, 0, 0, TimeSpan.Zero);
         using var repo = new GitTestRepoBuilder()
-            .WithCommit("feat: initial", date)
-            .WithCommit("feat: another", date)
+            .WithCommit("feat: initial", Feb23)
             .Build();
 
-        var calculator = new CalVerCalculator(repo.RepoPath);
-        var result = await calculator.CalculateNextVersionAsync(
-            "YYYY.0M.PATCH",
-            prereleaseIdentifier: "rc",
-            includeBuildMetadata: true);
+        var (_, stdout, _) = await ToolRunner.RunAsync("calver", repo.RepoPath, "-p", "alpha");
 
-        Assert.Equal("2025.02.0", result.Version);
-        Assert.Equal("rc.2", result.Prerelease);
-        Assert.NotNull(result.BuildMetadata);
-        Assert.Matches(@"^2025\.02\.0-rc\.2\+[a-f0-9]+$", result.FullVersion);
-    }
-}
-
-#region Calculator Class for Tests
-
-public static class CalVerFormatParser
-{
-    private static readonly HashSet<string> ValidTokens = new()
-    {
-        "YYYY", "YY", "0Y", "MM", "0M", "WW", "0W", "DD", "0D", "PATCH"
-    };
-
-    public static string ParseFormatToSchema(string format)
-    {
-        if (string.IsNullOrWhiteSpace(format))
-            throw new ArgumentException("Format cannot be empty", nameof(format));
-
-        var parts = format.Split('.');
-        var schemaParts = new List<string>();
-
-        foreach (var part in parts)
-        {
-            var trimmed = part.Trim();
-            if (!ValidTokens.Contains(trimmed))
-            {
-                throw new ArgumentException($"Invalid token '{trimmed}' in format. Valid tokens: {string.Join(", ", ValidTokens)}");
-            }
-            schemaParts.Add($"{{{trimmed}}}");
-        }
-
-        return string.Join(".", schemaParts);
+        Assert.Equal("2025.2.1-alpha", stdout);
     }
 
-    public static bool ValidateFormat(string format)
+    [Fact]
+    public async Task BuildMetadata_AppendsShortSha()
     {
-        if (string.IsNullOrWhiteSpace(format))
-            return false;
+        using var repo = new GitTestRepoBuilder()
+            .WithCommit("feat: initial", Feb23)
+            .Build();
 
-        var parts = format.Split('.');
-        foreach (var part in parts)
-        {
-            var trimmed = part.Trim();
-            if (!ValidTokens.Contains(trimmed))
-                return false;
-        }
+        var (_, stdout, _) = await ToolRunner.RunAsync("calver", repo.RepoPath, "-b");
 
-        return true;
-    }
-}
-
-public class CalVerCalculator
-{
-    private readonly GitService _gitService;
-    private readonly SchemaParser _schemaParser;
-
-    public CalVerCalculator(string? workingDirectory = null)
-    {
-        _gitService = new GitService { WorkingDirectory = workingDirectory };
-        _schemaParser = new SchemaParser();
+        Assert.Matches(@"^2025\.2\.1\+[a-f0-9]{7}$", stdout);
     }
 
-    public async Task<CalculationResult> CalculateNextVersionAsync(
-        string format,
-        string? prefix = null,
-        string? folder = null,
-        string? prereleaseIdentifier = null,
-        bool includeBuildMetadata = false)
+    [Fact]
+    public async Task PrereleaseAndBuildMetadata_Combined()
     {
-        var schema = CalVerFormatParser.ParseFormatToSchema(format);
+        using var repo = new GitTestRepoBuilder()
+            .WithCommit("feat: initial", Feb23)
+            .Build();
 
-        var headInfo = await _gitService.GetHeadInfoAsync();
-        var latestTag = await _gitService.GetLatestStableTagAsync(prefix);
+        var (_, stdout, _) = await ToolRunner.RunAsync("calver", repo.RepoPath, "-p", "rc", "-b");
 
-        if (latestTag == null)
-        {
-            return CalculateInitialVersion(schema, format, headInfo, prereleaseIdentifier, includeBuildMetadata);
-        }
-
-        var baseVersion = _gitService.ParseVersionFromTag(latestTag, prefix);
-        var numCommits = await _gitService.CountCommitsSinceTagAsync(latestTag, folder);
-
-        // Parse date from the tag
-        var baseDate = ParseDateFromTag(latestTag, prefix, schema);
-        var newDate = headInfo.Date;
-        var isSameDateWindow = IsSameDateWindow(schema, baseDate, newDate);
-
-        var newPatch = isSameDateWindow ? baseVersion.Patch + 1 : 0;
-        var newVersion = new VersionInfo(0, 0, newPatch, null, null);
-
-        var versionString = _schemaParser.ApplyVersion(schema, newVersion, newDate, numCommits, headInfo.ShortHash, headInfo.Hash);
-
-        var metadataService = new MetadataService();
-        var prerelease = metadataService.CalculatePrerelease(prereleaseIdentifier, numCommits);
-        var buildMetadata = includeBuildMetadata ? headInfo.ShortHash : null;
-        var fullVersion = metadataService.FormatFullVersion(versionString, prerelease, buildMetadata);
-
-        return new CalculationResult(
-            Version: versionString,
-            FullVersion: fullVersion,
-            BaseTag: latestTag,
-            BaseVersion: baseVersion,
-            CommitsSinceTag: numCommits,
-            IncrementReason: isSameDateWindow ? "same date window, incrementing patch" : "new date window, reset to 0",
-            Schema: schema,
-            Prerelease: prerelease,
-            BuildMetadata: buildMetadata
-        );
+        Assert.Matches(@"^2025\.2\.1-rc\+[a-f0-9]{7}$", stdout);
     }
 
-    private CalculationResult CalculateInitialVersion(
-        string schema,
-        string format,
-        (string Hash, string ShortHash, DateTimeOffset Date) headInfo,
-        string? prereleaseIdentifier,
-        bool includeBuildMetadata)
+    [Fact]
+    public async Task JsonOutput_ContainsAllFields()
     {
-        var versionInfo = new VersionInfo(0, 0, 0, null, null);
-        var versionString = _schemaParser.ApplyVersion(schema, versionInfo, headInfo.Date, 0, headInfo.ShortHash, headInfo.Hash);
+        using var repo = new GitTestRepoBuilder()
+            .WithCommit("feat: initial", Feb23)
+            .Build();
 
-        var metadataService = new MetadataService();
-        var prerelease = metadataService.CalculatePrerelease(prereleaseIdentifier, 0);
-        var buildMetadata = includeBuildMetadata ? headInfo.ShortHash : null;
-        var fullVersion = metadataService.FormatFullVersion(versionString, prerelease, buildMetadata);
+        var (exitCode, stdout, _) = await ToolRunner.RunAsync("calver", repo.RepoPath, "-o", "json");
 
-        return new CalculationResult(
-            Version: versionString,
-            FullVersion: fullVersion,
-            BaseTag: null,
-            BaseVersion: null,
-            CommitsSinceTag: 0,
-            IncrementReason: "initial version",
-            Schema: schema,
-            Prerelease: prerelease,
-            BuildMetadata: buildMetadata
-        );
+        Assert.Equal(0, exitCode);
+        using var json = JsonDocument.Parse(stdout);
+        Assert.Equal("2025.2.1", json.RootElement.GetProperty("version").GetString());
+        Assert.Equal("2025.2.1", json.RootElement.GetProperty("fullVersion").GetString());
+        Assert.Equal("YYYY.MM.PATCH", json.RootElement.GetProperty("format").GetString());
+        Assert.Equal("{YYYY}.{MM}.{PATCH}", json.RootElement.GetProperty("schema").GetString());
+        Assert.Equal(1, json.RootElement.GetProperty("commitCount").GetInt32());
+        Assert.False(json.RootElement.TryGetProperty("major", out _));
+        Assert.False(json.RootElement.TryGetProperty("dateFormat", out _));
     }
 
-    private DateTimeOffset ParseDateFromTag(string tag, string? prefix, string schema)
+    [Fact]
+    public async Task PackageFormat_UsesShortMonthAndDay()
     {
-        // Extract version part from tag
-        var versionPart = prefix != null && tag.StartsWith(prefix)
-            ? tag.Substring(prefix.Length)
-            : tag;
+        using var repo = new GitTestRepoBuilder()
+            .WithCommit("feat: initial", Feb23)
+            .Build();
 
-        var components = versionPart.Split('.');
-        
-        // Parse based on schema tokens
-        int year = DateTimeOffset.UtcNow.Year;
-        int month = DateTimeOffset.UtcNow.Month;
-        int day = DateTimeOffset.UtcNow.Day;
+        var (_, stdout, _) = await ToolRunner.RunAsync(
+            "calver", repo.RepoPath, "--format", "YYYY.MMDD.PATCH");
 
-        // Find the PATCH component index
-        var patchIndex = Array.IndexOf(schema.Split('.'), "{PATCH}");
-        
-        // Parse date components before PATCH
-        for (int i = 0; i < patchIndex && i < components.Length; i++)
-        {
-            var component = components[i];
-            
-            // Try to parse year
-            if (component.Length == 4 && int.TryParse(component, out var y) && y > 2000 && y < 2100)
-            {
-                year = y;
-            }
-            // Try to parse year-month combined
-            else if (component.Length == 6 && int.TryParse(component, out var ym))
-            {
-                year = ym / 100;
-                month = ym % 100;
-            }
-            // Try to parse year-month-day combined
-            else if (component.Length == 8 && int.TryParse(component, out var ymd))
-            {
-                year = ymd / 10000;
-                month = (ymd / 100) % 100;
-                day = ymd % 100;
-            }
-            // Parse individual month or day
-            else if (int.TryParse(component, out var value))
-            {
-                if (value >= 1 && value <= 12 && i == patchIndex - 1)
-                    month = value;
-                else if (value >= 1 && value <= 31)
-                    day = value;
-            }
-        }
+        Assert.Equal("2025.223.1", stdout);
+    }
+
+    [Fact]
+    public async Task FolderScope_UsesLatestFolderCommitDateAndSha()
+    {
+        using var repo = new GitTestRepo();
+        repo.AddFile("api/service.txt", "api");
+        repo.Commit("feat: api", Feb23);
+        var apiSha = repo.GetShortHead();
+        repo.AddFile("web/page.txt", "web");
+        repo.Commit("feat: web", Jun10);
+
+        var (_, stdout, _) = await ToolRunner.RunAsync(
+            "calver", repo.RepoPath, "--folder", "api", "--buildmetadata");
+
+        Assert.Equal($"2025.2.1+{apiSha}", stdout);
+    }
+
+    [Fact]
+    public async Task FolderWithPathspecCharacters_IsLiteral()
+    {
+        using var repo = new GitTestRepo();
+        repo.AddFile("apps/[api]/service.txt", "api");
+        repo.Commit("feat: api", Feb23);
+
+        var (exitCode, stdout, _) = await ToolRunner.RunAsync(
+            "calver", repo.RepoPath, "--folder", "apps/[api]");
+
+        Assert.Equal(0, exitCode);
+        Assert.Equal("2025.2.1", stdout);
+    }
+
+    [Fact]
+    public async Task CommitDate_IsRenderedInUtc()
+    {
+        var localMarch = new DateTimeOffset(2025, 3, 1, 0, 30, 0, TimeSpan.FromHours(2));
+        using var repo = new GitTestRepoBuilder()
+            .WithCommit("feat: before UTC midnight", localMarch)
+            .Build();
+
+        var (_, stdout, _) = await ToolRunner.RunAsync(
+            "calver", repo.RepoPath, "--format", "YYYY.0M.0D.PATCH");
+
+        Assert.Equal("2025.02.28.1", stdout);
+    }
+
+    [Fact]
+    public async Task IsoWeek_IsCultureIndependentAtYearBoundary()
+    {
+        var janFirst = new DateTimeOffset(2021, 1, 1, 12, 0, 0, TimeSpan.Zero);
+        using var repo = new GitTestRepoBuilder()
+            .WithCommit("feat: ISO week boundary", janFirst)
+            .Build();
+
+        var (_, stdout, _) = await ToolRunner.RunAsync(
+            "calver", repo.RepoPath, "--format", "YYYY.0W.PATCH");
+
+        Assert.Equal("2021.53.1", stdout);
+    }
+
+    [Fact]
+    public async Task DateWindow_ExcludesPreviousMonthBoundary()
+    {
+        var februaryEnd = new DateTimeOffset(2025, 2, 28, 23, 59, 59, TimeSpan.Zero);
+        var marchStart = new DateTimeOffset(2025, 3, 1, 0, 0, 0, TimeSpan.Zero);
+        using var repo = new GitTestRepoBuilder()
+            .WithCommit("feat: february", februaryEnd)
+            .WithCommit("feat: march", marchStart)
+            .Build();
+
+        var (_, stdout, _) = await ToolRunner.RunAsync("calver", repo.RepoPath);
+
+        Assert.Equal("2025.3.1", stdout);
+    }
+
+    [Fact]
+    public async Task MissingFolder_FailsClearly()
+    {
+        using var repo = new GitTestRepo();
+
+        var (exitCode, stdout, stderr) = await ToolRunner.RunAsync(
+            "calver", repo.RepoPath, "--folder", "missing");
+
+        Assert.NotEqual(0, exitCode);
+        Assert.Empty(stdout);
+        Assert.Contains("does not contain tracked files", stderr);
+    }
+
+    [Fact]
+    public async Task InvalidOutputFormat_Fails()
+    {
+        using var repo = new GitTestRepo();
+
+        var (exitCode, _, _) = await ToolRunner.RunAsync(
+            "calver", repo.RepoPath, "--output", "yaml");
+
+        Assert.NotEqual(0, exitCode);
+    }
+
+    [Fact]
+    public async Task InvalidFormat_UnknownToken_Fails()
+    {
+        using var repo = new GitTestRepoBuilder().Build();
+
+        var (exitCode, _, _) = await ToolRunner.RunAsync("calver", repo.RepoPath, "--format", "YYYY.XX.PATCH");
+
+        Assert.NotEqual(0, exitCode);
+    }
+
+    [Fact]
+    public async Task InvalidFormat_MissingYear_Fails()
+    {
+        using var repo = new GitTestRepoBuilder().Build();
+
+        var (exitCode, _, _) = await ToolRunner.RunAsync("calver", repo.RepoPath, "--format", "0M.PATCH");
+
+        Assert.NotEqual(0, exitCode);
+    }
+
+    [Fact]
+    public async Task InvalidFormat_MonthAndWeek_Fails()
+    {
+        using var repo = new GitTestRepoBuilder().Build();
+
+        var (exitCode, _, _) = await ToolRunner.RunAsync("calver", repo.RepoPath, "--format", "YYYY.0M.0W.PATCH");
+
+        Assert.NotEqual(0, exitCode);
+    }
+
+    [Fact]
+    public async Task InvalidFormat_DayWithoutMonth_Fails()
+    {
+        using var repo = new GitTestRepoBuilder().Build();
+
+        var (exitCode, _, _) = await ToolRunner.RunAsync("calver", repo.RepoPath, "--format", "YYYY.0D.PATCH");
+
+        Assert.NotEqual(0, exitCode);
+    }
+
+    [Fact]
+    public async Task InvalidFormat_WrongOrder_Fails()
+    {
+        using var repo = new GitTestRepoBuilder().Build();
+
+        var (exitCode, _, _) = await ToolRunner.RunAsync("calver", repo.RepoPath, "--format", "0M.YYYY.PATCH");
+
+        Assert.NotEqual(0, exitCode);
+    }
+
+    [Theory]
+    [InlineData(".YYYY.0M.PATCH")]
+    [InlineData("YYYY..0M.PATCH")]
+    [InlineData("YYYY.0M.PATCH.")]
+    [InlineData("YYYY.PATCH.PATCH")]
+    public async Task InvalidFormat_EmptyOrDuplicateSegmentsFail(string format)
+    {
+        using var repo = new GitTestRepoBuilder().Build();
+
+        var (exitCode, _, _) = await ToolRunner.RunAsync(
+            "calver", repo.RepoPath, "--format", format);
+
+        Assert.NotEqual(0, exitCode);
+    }
+
+    [Fact]
+    public async Task NotAGitRepo_Fails()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"ReleaseTools_NoGit_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
 
         try
         {
-            return new DateTimeOffset(year, month, day, 0, 0, 0, TimeSpan.Zero);
+            var (exitCode, _, _) = await ToolRunner.RunAsync("calver", tempDir);
+
+            Assert.NotEqual(0, exitCode);
         }
-        catch
+        finally
         {
-            return DateTimeOffset.UtcNow;
+            Directory.Delete(tempDir, recursive: true);
         }
-    }
-
-    private bool IsSameDateWindow(string schema, DateTimeOffset baseDate, DateTimeOffset newDate)
-    {
-        // Check if we're in the same date window based on schema precision
-        if (schema.Contains("{DD}") || schema.Contains("{0D}"))
-            return baseDate.Year == newDate.Year && baseDate.Month == newDate.Month && baseDate.Day == newDate.Day;
-
-        if (schema.Contains("{WW}") || schema.Contains("{0W}"))
-        {
-            // Simplified week comparison
-            var baseWeek = (baseDate.DayOfYear - 1) / 7;
-            var newWeek = (newDate.DayOfYear - 1) / 7;
-            return baseDate.Year == newDate.Year && baseWeek == newWeek;
-        }
-
-        if (schema.Contains("{MM}") || schema.Contains("{0M}"))
-            return baseDate.Year == newDate.Year && baseDate.Month == newDate.Month;
-
-        if (schema.Contains("{YYYY}"))
-            return baseDate.Year == newDate.Year;
-
-        // Default to year comparison
-        return baseDate.Year == newDate.Year;
     }
 }
-
-#endregion

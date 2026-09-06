@@ -2,188 +2,113 @@
 
 ## Overview
 
-Calendar Versioning is a versioning scheme that uses the release date as the primary version component. It's ideal for projects with time-sensitive releases or large/constantly-changing scope.
+`ReleaseTools.CalVer` is a .NET tool that calculates a calendar version from Git commit history. It prints the version to stdout, making it suitable for local scripts and release pipelines.
 
-## Specification
+Calendar Versioning uses a date as the primary version component. It's ideal for projects with time-sensitive releases or constantly-changing scope.
 
-The version format includes date components and an optional patch number to prevent clashing:
+The `calver` tool builds the version from a configurable token format. The date comes from the effective **HEAD commit date in UTC** (not the current date), which makes versions reproducible. With `--folder`, effective HEAD means the latest commit touching that tracked folder.
 
-- **YYYY** - Full year (2006, 2016, 2106)
-- **YY** - Short year (6, 16, 106)
-- **0Y** - Zero-padded year (06, 16, 106)
-- **MM** - Short month (1, 2, ..., 12)
-- **0M** - Zero-padded month (01, 02, ..., 12)
-- **WW** - Short week (1, 2, ..., 52)
-- **0W** - Zero-padded week (01, 02, ..., 52)
-- **DD** - Short day (1, 2, ..., 31)
-- **0D** - Zero-padded day (01, 02, ..., 31)
-- **PATCH** - Incremental counter to avoid clashing
-
-## Usage with ReleaseTools
-
-### Basic Usage
+## Installation
 
 ```bash
-# Calculate next version (year.month.patch)
-ver next --schema "{YYYY}.{0M}.{PATCH}"
-
-# Create and push tag
-ver tag --schema "{YYYY}.{0M}.{PATCH}" --push
+dotnet tool install --global ReleaseTools.CalVer
 ```
 
-### Common Schema Formats
-
-#### Ubuntu-style (YY.0M.MICRO)
+The installed command is `calver`. To upgrade an existing installation:
 
 ```bash
-ver next --schema "{YY}.{0M}.{PATCH}"
-# Output: 25.02.0 (February 2025)
+dotnet tool update --global ReleaseTools.CalVer
 ```
 
-#### Full Year (YYYY.0M.MICRO)
+## Requirements
+
+- The .NET 10 SDK
+- Git available on `PATH`
+- A Git repository with at least one commit
+- Full Git history; shallow clones can undercount commits in the selected date window
+
+In GitHub Actions, configure `actions/checkout` with `fetch-depth: 0` so the full commit history is available.
+
+## Tokens
+
+| Token | Renders | Example (Jan 5, 2005) |
+|-------|---------|------------------------|
+| `YYYY` | Full year | `2005` |
+| `YY` | Unpadded short year | `5` |
+| `0Y` | Zero-padded short year | `05` |
+| `MM` | Unpadded month | `1` |
+| `0M` | Zero-padded month | `01` |
+| `WW` | Unpadded ISO week | `1` |
+| `0W` | Zero-padded ISO week | `01` |
+| `DD` | Unpadded day | `5` |
+| `0D` | Zero-padded day | `05` |
+| `PATCH` | Commits in the date window | `3` |
+
+Tokens may be separated by `.` or concatenated (`YY.0M0D.PATCH` → `25.0223.1` for Feb 23, 2025). Formats are case-sensitive.
+
+### Validation Rules
+
+- Exactly one year token is required.
+- Month and week tokens are mutually exclusive.
+- Day tokens require a month token.
+- Tokens must be ordered: Year → Month/Week → Day → PATCH.
+- No duplicate token categories (e.g. two year tokens).
+
+## PATCH Semantics
+
+`PATCH` is the **number of commits within the current date window** — the finest date unit in the format:
+
+- `YYYY.MM.PATCH` (default) → commits in the HEAD commit's month
+- `YYYY.0M.PATCH` → commits in the HEAD commit's month (zero-padded)
+- `YYYY.0M.0D.PATCH` → commits on the HEAD commit's day
+- `YYYY.0W.PATCH` → commits in the HEAD commit's ISO week (weeks start Monday)
+- `YYYY.PATCH` → commits in the HEAD commit's year
+
+The count resets naturally as the window rolls over, no tags involved. If the format has no `PATCH` token, no count is appended (`YYYY.0M` → `2025.02`).
+
+## Usage
 
 ```bash
-ver next --schema "{YYYY}.{0M}.{PATCH}"
-# Output: 2025.02.0
+calver [options]
 ```
 
-#### Daily (YYYY.0M.0D)
+### Options
+
+| Option | Description |
+|--------|-------------|
+| `--format <FORMAT>` | Token format (default: `YYYY.MM.PATCH`) |
+| `-f, --folder <PATH>` | Use a tracked repository-relative folder's history and effective HEAD |
+| `-p, --prerelease <ID>` | Append prerelease identifier (e.g. `alpha`, `rc`) |
+| `-b, --buildmetadata` | Append short commit SHA as build metadata |
+| `-o, --output <text\|json>` | Output format (default: `text`) |
+
+## Examples
 
 ```bash
-ver next --schema "{YYYY}.{0M}{0D}.{PATCH}"
-# Output: 2025.0223.0 (February 23, 2025)
-```
+# Monthly cadence, 3 commits this month
+calver
+# 2025.2.3
 
-#### Ultra-detailed (YYYY.MM.DD)
+# Ubuntu-style
+calver --format YY.0M.PATCH
+# 25.02.3
 
-```bash
-ver next --schema "{YYYY}.{MM}.{DD}"
-# Output: 2025.2.23 (no patch, purely date-based)
-```
+# Daily
+calver --format YYYY.0M.0D.PATCH
+# 2025.02.23.1
 
-### With Prefix (Monorepo)
+# Pure date, no patch
+calver --format YYYY.0M
+# 2025.02
 
-```bash
-ver next --schema "{YYYY}.{0M}.{PATCH}" --prefix "api-"
-# Output: api-2025.02.0
-```
-
-## Date Source
-
-ReleaseTools uses the **commit date** (not current date) to determine the version. This provides:
-- **Reproducibility**: Same commit always produces the same version
-- **Traceability**: Easy to trace version back to specific commit
-- **Accuracy**: Reflects when changes were actually made
-
-## Clashing Prevention
-
-When multiple releases occur within the same date window (same day/month/year), the PATCH number is incremented to prevent clashing:
-
-### Example: Same Month
-
-```bash
-# First release in February 2025
-ver next --schema "{YYYY}.{0M}.{PATCH}"
-# Output: 2025.02.0
-
-# Second release in same month
-ver next --schema "{YYYY}.{0M}.{PATCH}"
-# Output: 2025.02.1
-
-# Third release in same month
-ver next --schema "{YYYY}.{0M}.{PATCH}"
-# Output: 2025.02.2
-```
-
-### Example: Same Day
-
-```bash
-# Schema: YYYY.0M.0D.PATCH
-ver next --schema "{YYYY}.{0M}{0D}.{PATCH}"
-# First: 2025.0223.0
-# Second: 2025.0223.1
-# Third: 2025.0223.2
-```
-
-## Date Window Changes
-
-When the date window changes (e.g., new month), the PATCH resets to 0:
-
-```bash
-# Current tag: 2025.02.5
-# Next commit is in March 2025
-ver next --schema "{YYYY}.{0M}.{PATCH}"
-# Output: 2025.03.0 (PATCH reset)
-```
-
-## Pre-release Versions
-
-```bash
-ver next --schema "{YYYY}.{0M}.{PATCH}-alpha.{NUM_COMMITS}"
-# Output: 2025.02.0-alpha.5
-
-ver next --schema "{YYYY}.{0M}{0D}.{PATCH}-rc.{NUM_COMMITS}"
-# Output: 2025.0223.0-rc.2
-```
-
-## Initial Version
-
-When no tags exist, ReleaseTools uses the commit date with PATCH=0:
-
-```bash
-ver next --schema "{YYYY}.{0M}.{PATCH}"
-# Output: 2025.02.0 (based on commit date)
+# Prerelease + build metadata
+calver -p rc -b
+# 2025.2.3-rc+a1b2c3d
 ```
 
 ## When to Use CalVer
 
-CalVer is ideal for:
-
-- **Large systems and frameworks** (like Ubuntu, Twisted)
-- **Projects with constantly-changing scope**
-- **Time-sensitive releases** (security updates, compliance changes)
-- **Projects where knowing when something was released matters more than API compatibility**
-
-## Comparison with Other Schemes
-
-| Project | Schema | Example |
-|---------|--------|---------|
-| Ubuntu | YY.0M.MICRO | 24.04 |
-| Twisted | YY.MM.MICRO | 24.01 |
-| youtube-dl | YYYY.0M.0D | 2025.02.23 |
-| pip | YY.MINOR.MICRO | 25.01 |
-| certifi | YYYY.MM.DD | 2025.02.23 |
-
-## Examples
-
-### Example 1: First Release
-
-```bash
-# Fresh repository with commits
-ver next --schema "{YYYY}.{0M}.{PATCH}"
-# Output: 2025.02.0 (based on commit date)
-```
-
-### Example 2: Monthly Releases
-
-```bash
-# Current tag: 2025.01.3
-# Next commit in same month
-ver next --schema "{YYYY}.{0M}.{PATCH}"
-# Output: 2025.01.4
-
-# Next commit in February
-ver next --schema "{YYYY}.{0M}.{PATCH}"
-# Output: 2025.02.0
-```
-
-### Example 3: Daily Releases
-
-```bash
-# Schema with day: YYYY.0M.0D.PATCH
-# Multiple releases same day
-ver next --schema "{YYYY}.{0M}{0D}.{PATCH}"
-# First: 2025.0223.0
-# Second: 2025.0223.1
-# Third: 2025.0223.2
-```
+- Large systems and frameworks (like Ubuntu, Twisted)
+- Projects with constantly-changing scope
+- Time-sensitive releases (security updates, compliance changes)
+- Projects where knowing *when* something was released matters more than API compatibility

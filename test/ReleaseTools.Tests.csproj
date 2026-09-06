@@ -9,17 +9,8 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\src\shared\ReleaseTools.Shared.csproj" />
-  </ItemGroup>
-
-  <ItemGroup>
     <PackageReference Include="CliWrap" Version="3.10.0" />
-    <PackageReference Include="Spectre.Console.Cli" Version="0.53.0" />
-    <PackageReference Include="xunit.v3.mtp-v2" Version="3.*" />
-    <PackageReference Include="xunit.runner.visualstudio" Version="3.*">
-      <PrivateAssets>all</PrivateAssets>
-      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
-    </PackageReference>
+    <PackageReference Include="xunit.v3" Version="4.0.0" />
     <PackageReference Include="Microsoft.Testing.Extensions.CodeCoverage" Version="18.*" />
   </ItemGroup>
 

@@ -2,163 +2,105 @@
 
 ## Overview
 
-Semantic Versioning is a versioning scheme that uses a three-part version number: `MAJOR.MINOR.PATCH`.
+`ReleaseTools.SemVer` is a .NET tool that calculates the next semantic version from Git history and Conventional Commits. It prints the version to stdout, making it suitable for local scripts and release pipelines.
 
-## Specification
+Semantic Versioning uses a three-part version number: `MAJOR.MINOR.PATCH`.
 
-Given a version number `MAJOR.MINOR.PATCH`, increment the:
+1. **MAJOR** — incompatible API changes
+2. **MINOR** — backward-compatible functionality
+3. **PATCH** — backward-compatible bug fixes
 
-1. **MAJOR** version when you make incompatible API changes
-2. **MINOR** version when you add functionality in a backward compatible manner
-3. **PATCH** version when you make backward compatible bug fixes
+The `semver` tool implements this with a fixed schema `{MAJOR}.{MINOR}.{PATCH}`, deriving the increment from [Conventional Commits](https://www.conventionalcommits.org/) since the latest stable tag.
 
-Additional labels for pre-release and build metadata are available as extensions to the `MAJOR.MINOR.PATCH` format.
-
-## Usage with ReleaseTools
-
-### Basic Usage
+## Installation
 
 ```bash
-# Calculate next version
-ver next --schema "{MAJOR}.{MINOR}.{PATCH}"
-
-# Create and push tag
-ver tag --schema "{MAJOR}.{MINOR}.{PATCH}" --push
+dotnet tool install --global ReleaseTools.SemVer
 ```
 
-### With Prefix (Monorepo)
+The installed command is `semver`. To upgrade an existing installation:
 
 ```bash
-ver next --schema "{MAJOR}.{MINOR}.{PATCH}" --prefix "api-"
-# Output: api-1.2.0
+dotnet tool update --global ReleaseTools.SemVer
 ```
 
-### With Folder Filter (Monorepo)
+## Requirements
+
+- The .NET 10 SDK
+- Git available on `PATH`
+- A Git repository with at least one commit
+- Full Git history and tags; shallow clones can produce incomplete version calculations
+
+In GitHub Actions, configure `actions/checkout` with `fetch-depth: 0` so tags and history are available.
+
+## Usage
 
 ```bash
-ver next --schema "{MAJOR}.{MINOR}.{PATCH}" --folder "./src/MyApp"
+semver [options]
 ```
 
-### Pre-release Versions
+### Options
 
-```bash
-# Alpha
-ver next --schema "{MAJOR}.{MINOR}.{PATCH}-alpha.{NUM_COMMITS}"
-# Output: 1.2.0-alpha.5
+| Option | Description |
+|--------|-------------|
+| `--prefix <PREFIX>` | Literal tag prefix; the remainder must be a complete SemVer (e.g. `api-` for `api-1.0.0`) |
+| `-f, --folder <PATH>` | Use a tracked repository-relative folder's history |
+| `-p, --prerelease <ID>` | Append identifier and matching commit count (e.g. `alpha.3`) |
+| `-b, --buildmetadata` | Append short commit SHA as build metadata |
+| `-o, --output <text\|json>` | Output format (default: `text`) |
 
-# Beta
-ver next --schema "{MAJOR}.{MINOR}.{PATCH}-beta.{NUM_COMMITS}"
-# Output: 1.2.0-beta.3
+## Commit Types
 
-# Release Candidate
-ver next --schema "{MAJOR}.{MINOR}.{PATCH}-rc.{NUM_COMMITS}"
-# Output: 1.2.0-rc.2
-```
-
-### Build Metadata
-
-```bash
-# With short SHA
-ver next --schema "{MAJOR}.{MINOR}.{PATCH}+{SHORTSHA}"
-# Output: 1.2.0+a1b2c3d
-
-# With full SHA
-ver next --schema "{MAJOR}.{MINOR}.{PATCH}+{SHA}"
-# Output: 1.2.0+a1b2c3d4e5f6g7h8i9j0
-```
-
-### Docker-compatible Tags
-
-Docker doesn't support `+` for build metadata. Use `-` instead:
-
-```bash
-ver next --schema "{MAJOR}.{MINOR}.{PATCH}-{SHORTSHA}"
-# Output: 1.2.0-a1b2c3d
-```
-
-## Conventional Commits
-
-ReleaseTools uses [Conventional Commits](https://www.conventionalcommits.org/) to determine version increments.
-
-### Commit Types
-
-| Type | Description | Increment |
-|------|-------------|-----------|
-| `feat` | New feature | Minor |
-| `fix` | Bug fix | Patch |
-| `perf` | Performance improvement | Patch |
-| `revert` | Revert previous commit | Patch |
-| `docs` | Documentation changes | None |
-| `style` | Code style changes | None |
-| `ref refactoring | None |
-| `test` | Test changesactor` | Code | None |
-| `chore` | Maintenance tasks | None |
-| `build` | Build system changes | None |
-| `ci` | CI/CD changes | None |
+| Type | Increment |
+|------|-----------|
+| `feat` | Minor |
+| `fix`, `perf`, `revert` | Patch |
+| `docs`, `style`, `refactor`, `test`, `chore`, `build`, `ci`, anything else | None |
 
 ### Breaking Changes
 
-Breaking changes increment the MAJOR version:
+Append `!` to the type to signal a breaking change (increments MAJOR):
 
-```bash
-# Using ! in commit message
+```
 feat!: remove deprecated API
-
-# Or using BREAKING CHANGE in body
-feat: add new API
-
-BREAKING CHANGE: This removes the old API
+fix(api)!: change response format
 ```
 
-## Initial Version
+For commits with a valid Conventional Commit subject, the full message is analyzed. Both `BREAKING CHANGE:` and `BREAKING-CHANGE:` footers increment MAJOR.
 
-When no tags exist in the repository, ReleaseTools starts at `0.1.0`.
+## Behavior Details
+
+- **No tags** → initial version `0.1.0`.
+- **Tag selection**: only strict SemVer tags whose name is `{prefix}{version}` are considered. `--prefix api` does not match `api-1.0.0` or `apix-1.0.0`; use `--prefix api-`. Prerelease and unreachable tags are skipped. Stable tags with build metadata are eligible, but their metadata is not carried into the calculated version.
+- **Base version**: the highest reachable stable SemVer wins, not the alphabetically first or nearest tag.
+- **Increment is applied once**: the highest increment among all commits since the tag wins (e.g. three `feat` commits → one minor bump).
+- **Folder filter**: the folder must be a literal tracked path. Its latest commit supplies the effective HEAD date/SHA, and commits outside it are ignored.
+- **Prerelease counter**: `-p alpha` produces `alpha.N`, where `N` is the filtered commit count since the stable base (or the full matching history before the first tag). The prerelease is appended whenever requested, even without version-relevant commits (e.g. docs-only changes after `1.0.0` → `1.0.0-alpha.1`).
 
 ## Examples
 
-### Example 1: Adding Features
-
 ```bash
-# Repository has tag 1.0.0
-# New commits:
-#   - feat: add user authentication
-#   - feat: add user profile
+# Tag 1.0.0, new commits: feat: add user authentication
+semver
+# 1.1.0
 
-ver next --schema "{MAJOR}.{MINOR}.{PATCH}"
-# Output: 1.1.0
-```
+# Tag 1.0.0, new commits: fix: resolve login issue
+semver
+# 1.0.1
 
-### Example 2: Bug Fixes
+# Tag 1.0.0, new commits: feat!: redesign API
+semver
+# 2.0.0
 
-```bash
-# Repository has tag 1.0.0
-# New commits:
-#   - fix: resolve login issue
+# Prerelease and build metadata
+semver -p beta -b
+# 1.1.0-beta.1+a1b2c3d
 
-ver next --schema "{MAJOR}.{MINOR}.{PATCH}"
-# Output: 1.0.1
-```
+# Monorepo: tags like api-1.0.0, web-2.3.0
+semver --prefix api-
+# 1.1.0 (based on api-1.0.0, ignoring web-* tags)
 
-### Example 3: Breaking Changes
-
-```bash
-# Repository has tag 1.0.0
-# New commits:
-#   - feat!: redesign API
-
-ver next --schema "{MAJOR}.{MINOR}.{PATCH}"
-# Output: 2.0.0
-```
-
-### Example 4: Multiple Changes (Only Increments Once)
-
-```bash
-# Repository has tag 1.0.0
-# New commits:
-#   - feat: add feature A
-#   - feat: add feature B
-#   - fix: fix bug
-
-ver next --schema "{MAJOR}.{MINOR}.{PATCH}"
-# Output: 1.1.0 (not 1.2.1 - only one increment)
+# JSON output for pipelines
+semver -o json
+# { "version": "1.1.0", "fullVersion": "1.1.0", "baseTag": "1.0.0", ... }
 ```

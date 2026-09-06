@@ -4,12 +4,22 @@
 #:property Nullable=enable
 #:property ImplicitUsings=enable
 #:property PublishAot=false
-#:package CliWrap@3.10.0
-#:package Spectre.Console.Cli@0.53.0
-#:project ../shared/ReleaseTools.Shared.csproj
+#:property ManagePackageVersionsCentrally=true
+#:property PackageId=ReleaseTools.CalVer
+#:property ToolCommandName=calver
+#:property Description=Calculate calendar versions from Git commit dates.
+#:package CliWrap
+#:package Spectre.Console.Cli
+#:include shared/GitService.cs
+#:include shared/SchemaParser.cs
+#:include shared/MetadataService.cs
+#:include shared/VersionInfo.cs
+#:include shared/CalculationResult.cs
+#:include shared/DateGranularity.cs
+#:include shared/OutputFormat.cs
+#:include shared/OutputWriter.cs
 
 using System.ComponentModel;
-using System.Text.Json;
 using System.Text.RegularExpressions;
 using ReleaseTools.Shared;
 using Spectre.Console;
@@ -18,17 +28,86 @@ using Spectre.Console.Cli;
 var app = new CommandApp<NextCommand>();
 app.Configure(config =>
 {
-    config.AddExample(new[] { "-f", "YYYY.0M.PATCH" });
-    config.AddExample(new[] { "-f", "YY.0M0D.PATCH" });
-    config.AddExample(new[] { "-f", "YYYY.0M", "-p", "rc" });
-    config.AddExample(new[] { "-b" });
+    config.ConfigureConsole(AnsiConsole.Create(new AnsiConsoleSettings
+    {
+        Out = new AnsiConsoleOutput(Console.Error)
+    }));
+    config.AddExample([]);
+    config.AddExample(["--format", "YY.0M0D.PATCH"]);
+    config.AddExample(["--format", "YYYY.0M", "-p", "rc"]);
+    config.AddExample(["-b"]);
 });
 
 return await app.RunAsync(args);
 
-#region Format Validator
+public sealed class NextCommand : AsyncCommand<NextCommand.Settings>
+{
+    public sealed class Settings : CommandSettings
+    {
+        [CommandOption("--format <FORMAT>")]
+        [Description("CalVer format using tokens: YYYY, YY, 0Y, MM, 0M, WW, 0W, DD, 0D, PATCH")]
+        [DefaultValue("YYYY.MM.PATCH")]
+        public string Format { get; init; } = "YYYY.MM.PATCH";
 
-public static class CalVerFormatValidator
+        [CommandOption("-f|--folder <PATH>")]
+        [Description("Repository-relative folder whose commits determine the version")]
+        public string? Folder { get; init; }
+
+        [CommandOption("-p|--prerelease <ID>")]
+        [Description("Prerelease identifier (e.g., alpha, beta, rc)")]
+        public string? Prerelease { get; init; }
+
+        [CommandOption("-b|--buildmetadata")]
+        [Description("Include build metadata (short SHA) in the version")]
+        [DefaultValue(false)]
+        public bool BuildMetadata { get; init; }
+
+        [CommandOption("-o|--output <FORMAT>")]
+        [Description("Output format: text or json")]
+        [DefaultValue(OutputFormat.Text)]
+        public OutputFormat Output { get; init; } = OutputFormat.Text;
+
+        public override ValidationResult Validate()
+        {
+            var formatResult = CalVerFormatValidator.Validate(Format);
+            if (!formatResult.Successful)
+                return formatResult;
+
+            if (!string.IsNullOrEmpty(Prerelease) &&
+                !Regex.IsMatch(Prerelease, @"^[0-9A-Za-z-]+$"))
+            {
+                return ValidationResult.Error(
+                    "Prerelease must be a single alphanumeric or hyphenated label (for example: alpha, beta, rc-1)");
+            }
+
+            return ValidationResult.Success();
+        }
+    }
+
+    public override async Task<int> ExecuteAsync(CommandContext context, Settings settings, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var calculator = new CalVerCalculator();
+            var result = await calculator.CalculateNextVersionAsync(
+                settings.Format,
+                settings.Folder,
+                settings.Prerelease,
+                settings.BuildMetadata,
+                cancellationToken);
+
+            OutputWriter.Write(result, settings.Output);
+            return 0;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            Console.Error.WriteLine($"Error: {ex.Message}");
+            return 1;
+        }
+    }
+}
+
+file static class CalVerFormatValidator
 {
     private static readonly string[] TokensByLength = ["YYYY", "PATCH", "0M", "0D", "0W", "0Y", "MM", "DD", "WW", "YY"];
 
@@ -36,8 +115,6 @@ public static class CalVerFormatValidator
     private static readonly HashSet<string> MonthTokens = ["MM", "0M"];
     private static readonly HashSet<string> WeekTokens = ["WW", "0W"];
     private static readonly HashSet<string> DayTokens = ["DD", "0D"];
-
-    public static string ValidTokensDisplay => "YYYY, YY, 0Y, MM, 0M, WW, 0W, DD, 0D, PATCH";
 
     public static List<string> ParseTokens(string format)
     {
@@ -132,6 +209,9 @@ public static class CalVerFormatValidator
         if (string.IsNullOrWhiteSpace(format))
             return ValidationResult.Error("Format cannot be empty");
 
+        if (format.StartsWith('.') || format.EndsWith('.') || format.Contains("..", StringComparison.Ordinal))
+            return ValidationResult.Error("Format cannot contain empty dot-separated segments");
+
         List<string> tokens;
         try
         {
@@ -145,11 +225,13 @@ public static class CalVerFormatValidator
         if (tokens.Count == 0)
             return ValidationResult.Error("Format must contain at least one token");
 
+        if (tokens.Count(token => token == "PATCH") > 1)
+            return ValidationResult.Error("Format can contain at most one PATCH token");
+
         var hasYear = tokens.Any(t => YearTokens.Contains(t));
         var hasMonth = tokens.Any(t => MonthTokens.Contains(t));
         var hasWeek = tokens.Any(t => WeekTokens.Contains(t));
         var hasDay = tokens.Any(t => DayTokens.Contains(t));
-        var hasPatch = tokens.Contains("PATCH");
 
         if (!hasYear)
             return ValidationResult.Error("Format must include a year token (YYYY, YY, or 0Y)");
@@ -198,39 +280,20 @@ public static class CalVerFormatValidator
 
     public static DateGranularity GetGranularity(string format)
     {
-        try
-        {
-            var tokens = ParseTokens(format);
-            if (tokens.Any(t => DayTokens.Contains(t))) return DateGranularity.Day;
-            if (tokens.Any(t => WeekTokens.Contains(t))) return DateGranularity.Week;
-            if (tokens.Any(t => MonthTokens.Contains(t))) return DateGranularity.Month;
-            return DateGranularity.Year;
-        }
-        catch
-        {
-            return DateGranularity.Month;
-        }
+        var tokens = ParseTokens(format);
+        if (tokens.Any(t => DayTokens.Contains(t))) return DateGranularity.Day;
+        if (tokens.Any(t => WeekTokens.Contains(t))) return DateGranularity.Week;
+        if (tokens.Any(t => MonthTokens.Contains(t))) return DateGranularity.Month;
+        return DateGranularity.Year;
     }
 
     public static bool ContainsPatch(string format)
     {
-        try
-        {
-            var tokens = ParseTokens(format);
-            return tokens.Contains("PATCH");
-        }
-        catch
-        {
-            return false;
-        }
+        return ParseTokens(format).Contains("PATCH");
     }
 }
 
-#endregion
-
-#region Calculator
-
-public class CalVerCalculator
+file sealed class CalVerCalculator
 {
     private readonly GitService _gitService;
     private readonly SchemaParser _schemaParser;
@@ -245,116 +308,40 @@ public class CalVerCalculator
         string format,
         string? folder = null,
         string? prereleaseIdentifier = null,
-        bool includeBuildMetadata = false)
+        bool includeBuildMetadata = false,
+        CancellationToken cancellationToken = default)
     {
         var schema = CalVerFormatValidator.BuildSchema(format);
         var granularity = CalVerFormatValidator.GetGranularity(format);
         var hasPatch = CalVerFormatValidator.ContainsPatch(format);
 
-        var headInfo = await _gitService.GetHeadInfoAsync();
-        var patch = hasPatch ? await _gitService.CountCommitsOnDateAsync(headInfo.Date, granularity, folder) : 0;
+        var normalizedFolder = await _gitService.ValidateFolderAsync(folder, cancellationToken);
+        var headInfo = await _gitService.GetHeadInfoAsync(normalizedFolder, cancellationToken);
+        var patch = hasPatch
+            ? await _gitService.CountCommitsOnDateAsync(headInfo.Date, granularity, normalizedFolder, cancellationToken)
+            : 0;
 
-        var versionInfo = new VersionInfo(0, 0, patch, null, null);
-        var versionString = _schemaParser.ApplyVersion(schema, versionInfo, headInfo.Date, patch, headInfo.ShortHash, headInfo.Hash);
+        var versionInfo = new VersionInfo(0, 0, patch);
+        var versionString = _schemaParser.ApplyVersion(schema, versionInfo, headInfo.Date);
 
-        var metadataService = new MetadataService();
-        var prerelease = metadataService.CalculatePrerelease(prereleaseIdentifier);
+        var prerelease = prereleaseIdentifier;
         var buildMetadata = includeBuildMetadata ? headInfo.ShortHash : null;
-        var fullVersion = metadataService.FormatFullVersion(versionString, prerelease, buildMetadata);
+        var fullVersion = MetadataService.FormatFullVersion(versionString, prerelease, buildMetadata);
 
         var incrementReason = hasPatch
-            ? $"{patch} commit(s) on {granularity.ToString().ToLower()} window"
+            ? $"{patch} commit(s) in {granularity.ToString().ToLowerInvariant()} window"
             : "no patch segment";
 
         return new CalculationResult(
             Version: versionString,
             FullVersion: fullVersion,
             BaseTag: null,
-            BaseVersion: null,
-            CommitsSinceTag: patch,
+            CommitCount: patch,
             IncrementReason: incrementReason,
             Schema: schema,
             Prerelease: prerelease,
-            BuildMetadata: buildMetadata
+            BuildMetadata: buildMetadata,
+            Format: format
         );
     }
 }
-
-#endregion
-
-#region Command
-
-public class NextCommand : AsyncCommand<NextCommand.Settings>
-{
-    public class Settings : CommandSettings
-    {
-        [CommandOption("-f|--format")]
-        [Description("CalVer format using tokens: YYYY, YY, 0Y, MM, 0M, WW, 0W, DD, 0D, PATCH")]
-        [DefaultValue("YYYY.0M.PATCH")]
-        public string Format { get; init; } = "YYYY.0M.PATCH";
-
-        [CommandOption("--folder")]
-        [Description("Filter commits to a specific folder path")]
-        public string? Folder { get; init; }
-
-        [CommandOption("-p|--prerelease")]
-        [Description("Prerelease identifier (e.g., alpha, beta, rc)")]
-        public string? Prerelease { get; init; }
-
-        [CommandOption("-b|--buildmetadata")]
-        [Description("Include build metadata (short SHA) in the version")]
-        [DefaultValue(false)]
-        public bool BuildMetadata { get; init; }
-
-        [CommandOption("-o|--output")]
-        [Description("Output format: text or json")]
-        [DefaultValue("text")]
-        public string Output { get; init; } = "text";
-
-        public override ValidationResult Validate()
-        {
-            return CalVerFormatValidator.Validate(Format);
-        }
-    }
-
-    public override async Task<int> ExecuteAsync(CommandContext context, Settings settings, CancellationToken cancellationToken)
-    {
-        try
-        {
-            var calculator = new CalVerCalculator();
-            var result = await calculator.CalculateNextVersionAsync(
-                settings.Format,
-                settings.Folder,
-                settings.Prerelease,
-                settings.BuildMetadata);
-
-            if (settings.Output.Equals("json", StringComparison.OrdinalIgnoreCase))
-            {
-                var json = JsonSerializer.Serialize(new
-                {
-                    result.Version,
-                    result.FullVersion,
-                    Format = settings.Format,
-                    result.CommitsSinceTag,
-                    result.IncrementReason,
-                    result.Schema,
-                    result.Prerelease,
-                    result.BuildMetadata
-                }, new JsonSerializerOptions { WriteIndented = true });
-                Console.Write(json);
-            }
-            else
-            {
-                AnsiConsole.Write(result.FullVersion);
-            }
-            return 0;
-        }
-        catch (Exception ex)
-        {
-            AnsiConsole.MarkupLine($"[red]Error: {ex.Message}[/]");
-            return 1;
-        }
-    }
-}
-
-#endregion
